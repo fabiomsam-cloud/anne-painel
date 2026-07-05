@@ -32,7 +32,7 @@ export default function Metricas() {
           count('escalations', q => q.eq('status', 'open')),
           count('escalations', q => q.gte('created_at', desde)),
           count('events_outbox', q => q.eq('event_type', 'checkout_enviado').gte('created_at', desde)),
-          count('sales', q => q.gte('created_at', desde)),
+          count('sales', q => q.neq('matched_by', 'unmatched').gte('created_at', desde)),
           count('followup_log', q => q.gte('sent_at', desde)),
           count('followup_log', q => q.eq('replied', true).gte('sent_at', desde)),
           count('conversations', q => q.eq('status', 'won')),
