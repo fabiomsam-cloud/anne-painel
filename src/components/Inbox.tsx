@@ -261,6 +261,14 @@ export default function Inbox() {
               </div>
             </div>
           )}
+          {mem.fase_venda && (
+            <div className="border border-teal/25 bg-teal/5 rounded-xl p-3">
+              <div className="text-[10px] font-mono text-teal uppercase tracking-widest">Fase de venda</div>
+              <div className="text-sm mt-1 font-medium">
+                {['1 · Situação', '2 · Problema', '3 · Valor', '4 · Oferta'][mem.fase_venda - 1] ?? mem.fase_venda}
+              </div>
+            </div>
+          )}
           {mem.lead_stage && (
             <div>
               <div className="text-[10px] font-mono text-dim uppercase tracking-widest mb-1">Estágio</div>
