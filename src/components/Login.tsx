@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabase'
 
 export default function Login() {
   const [email, setEmail] = useState('')
+  const [senha, setSenha] = useState('')
+  const [modo, setModo] = useState<'senha' | 'link'>('senha')
   const [enviado, setEnviado] = useState(false)
   const [erro, setErro] = useState('')
   const [enviando, setEnviando] = useState(false)
@@ -10,12 +12,20 @@ export default function Login() {
   const entrar = async (e: React.FormEvent) => {
     e.preventDefault()
     setEnviando(true); setErro('')
+    if (modo === 'senha') {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(), password: senha,
+      })
+      setEnviando(false)
+      if (error) setErro(error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : error.message)
+      return
+    }
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim().toLowerCase(),
       options: { emailRedirectTo: window.location.href.split('#')[0] },
     })
     setEnviando(false)
-    if (error) setErro(error.message)
+    if (error) setErro(error.message.includes('rate limit') ? 'Limite de e-mails atingido — use a senha ou aguarde ~1h.' : error.message)
     else setEnviado(true)
   }
 
@@ -46,15 +56,27 @@ export default function Login() {
                 className="mt-2 w-full bg-panel border border-line rounded-lg px-4 py-3 text-sm font-mono
                   focus:outline-none focus:border-gold/60 transition-colors placeholder:text-dim/50" />
             </label>
+            {modo === 'senha' && (
+              <label className="block">
+                <span className="text-xs text-dim uppercase tracking-wider">Senha</span>
+                <input type="password" required value={senha} onChange={e => setSenha(e.target.value)}
+                  placeholder="••••••••••••"
+                  className="mt-2 w-full bg-panel border border-line rounded-lg px-4 py-3 text-sm font-mono
+                    focus:outline-none focus:border-gold/60 transition-colors placeholder:text-dim/50" />
+              </label>
+            )}
             <button disabled={enviando}
               className="w-full bg-gold text-ink font-semibold rounded-lg py-3 text-sm
                 hover:brightness-110 active:scale-[0.99] transition disabled:opacity-50">
-              {enviando ? 'Enviando…' : 'Receber link mágico →'}
+              {enviando ? 'Entrando…' : modo === 'senha' ? 'Entrar →' : 'Receber link mágico →'}
             </button>
             {erro && <div className="text-danger text-xs">{erro}</div>}
+            <button type="button" onClick={() => { setModo(modo === 'senha' ? 'link' : 'senha'); setErro('') }}
+              className="text-[11px] text-dim hover:text-gold transition-colors">
+              {modo === 'senha' ? 'Prefiro receber link mágico por e-mail →' : '← Entrar com senha'}
+            </button>
             <p className="text-[11px] text-dim/70 leading-relaxed">
-              Sem senha: você recebe um link de acesso por e-mail. Apenas e-mails autorizados
-              enxergam os dados.
+              Apenas e-mails autorizados enxergam os dados.
             </p>
           </form>
         )}
