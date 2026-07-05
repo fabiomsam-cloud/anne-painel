@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --gold: #f5b942;
+  --teal: #35d0ba;
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  @apply bg-ink text-cream font-body antialiased;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 20% -10%, rgba(53, 208, 186, 0.06), transparent),
+    radial-gradient(ellipse 60% 40% at 90% 110%, rgba(245, 185, 66, 0.05), transparent);
+  background-attachment: fixed;
+}
+
+/* grain sutil por cima de tudo */
+body::after {
+  content: '';
+  position: fixed; inset: 0; pointer-events: none; z-index: 50;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #1f332a; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #2b4638; }
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.rise { animation: rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(224, 111, 111, 0.5); }
+  70% { box-shadow: 0 0 0 8px rgba(224, 111, 111, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(224, 111, 111, 0); }
+}
+.pulse-danger { animation: pulse-ring 1.8s infinite; }
+
+.tab-active {
+  color: var(--gold);
+  position: relative;
+}
+.tab-active::before {
+  content: '';
+  position: absolute; left: -12px; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 60%; background: var(--gold); border-radius: 2px;
+}
