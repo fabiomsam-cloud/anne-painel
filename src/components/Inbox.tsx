@@ -88,6 +88,20 @@ export default function Inbox() {
     setSel({ ...sel, status: 'ia' })
   }
 
+  const apagarConversa = async () => {
+    if (!sel) return
+    const nome = sel.contacts?.name || fmtFone(sel.contacts?.phone)
+    if (!window.confirm(
+      `Apagar TODA a conversa com ${nome}?\n\n` +
+      'Isso remove mensagens, follow-ups e escalações, e zera a memória que a IA construiu do lead. ' +
+      'A próxima mensagem dele começa do zero, na triagem. Não dá para desfazer.')) return
+    // conversa (cascade: messages, followup_queue/log, escalations) + reset da memória do contato
+    await supabase.from('conversations').delete().eq('id', sel.id)
+    await supabase.from('contacts').update({ client_memory: {}, tags: [], opted_out: false, opted_out_at: null })
+      .eq('id', sel.contacts.id)
+    setSel(null); setMsgs([]); carregarConvs()
+  }
+
   const enviar = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!sel || !texto.trim() || enviando) return
@@ -186,6 +200,10 @@ export default function Inbox() {
                     ✋ Assumir conversa
                   </button>
                 )}
+                <button onClick={apagarConversa} title="Apagar conversa e zerar memória do lead"
+                  className="text-xs text-danger/80 border border-danger/30 rounded-lg px-2.5 py-1.5 hover:bg-danger/10 hover:text-danger transition">
+                  🗑
+                </button>
               </div>
             </div>
 
