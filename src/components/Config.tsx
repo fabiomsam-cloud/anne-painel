@@ -13,8 +13,6 @@ type Doc = {
 export default function Config() {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [docs, setDocs] = useState<Doc[]>([])
-  const [editando, setEditando] = useState<Profile | null>(null)
-  const [salvando, setSalvando] = useState(false)
   const [novoDoc, setNovoDoc] = useState({ agent_slug: 'elite_prf', title: '', doc_type: 'faq', raw_content: '' })
   const [msgOk, setMsgOk] = useState('')
 
@@ -34,18 +32,6 @@ export default function Config() {
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [])
-
-  const salvarProfile = async () => {
-    if (!editando) return
-    setSalvando(true)
-    await supabase.from('agent_profiles').update({
-      name: editando.name, active: editando.active, model: editando.model,
-      system_prompt: editando.system_prompt, checkout_url: editando.checkout_url,
-      dados_mentoria: editando.dados_mentoria,
-    }).eq('id', editando.id)
-    setSalvando(false); setEditando(null); carregar()
-    flash('Perfil salvo — vale já na próxima mensagem.')
-  }
 
   const enviarDoc = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -70,67 +56,13 @@ export default function Config() {
         <div className="rise border border-win/40 bg-win/10 text-win text-sm rounded-xl px-4 py-3">{msgOk}</div>
       )}
 
-      {/* Agentes */}
+      {/* Agentes migraram para a aba própria */}
       <section>
-        <h1 className="font-display font-bold text-2xl mb-4">Agentes</h1>
-        <div className="space-y-2">
-          {profiles.map(p => (
-            <div key={p.id} className="border border-line bg-panel/50 rounded-xl p-4">
-              <div className="flex items-center gap-3">
-                <span className={`w-2 h-2 rounded-full ${p.active ? 'bg-win' : 'bg-dim'}`} />
-                <span className="font-semibold">{p.name}</span>
-                <span className="font-mono text-[10px] text-dim">{p.slug} · {p.model}</span>
-                {p.dados_mentoria?.valor_promocional && (
-                  <span className="text-[11px] text-gold font-mono">{p.dados_mentoria.valor_promocional}</span>
-                )}
-                <button onClick={() => setEditando(editando?.id === p.id ? null : { ...p })}
-                  className="ml-auto text-xs text-dim border border-line rounded-lg px-3 py-1.5 hover:text-cream transition">
-                  {editando?.id === p.id ? 'Fechar' : 'Editar'}
-                </button>
-              </div>
-
-              {editando?.id === p.id && (
-                <div className="mt-4 space-y-3 rise">
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="block text-xs text-dim">Nome
-                      <input value={editando.name} onChange={e => setEditando({ ...editando, name: e.target.value })}
-                        className="mt-1 w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm text-cream focus:outline-none focus:border-gold/60" />
-                    </label>
-                    <label className="block text-xs text-dim">Modelo
-                      <input value={editando.model} onChange={e => setEditando({ ...editando, model: e.target.value })}
-                        className="mt-1 w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm font-mono text-cream focus:outline-none focus:border-gold/60" />
-                    </label>
-                  </div>
-                  <label className="block text-xs text-dim">Link de checkout (Hubla)
-                    <input value={editando.checkout_url ?? ''} onChange={e => setEditando({ ...editando, checkout_url: e.target.value })}
-                      className="mt-1 w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm font-mono text-cream focus:outline-none focus:border-gold/60" />
-                  </label>
-                  <label className="block text-xs text-dim">Dados da mentoria (JSON — preço/condições; fonte única da IA)
-                    <textarea rows={4} value={JSON.stringify(editando.dados_mentoria ?? {}, null, 2)}
-                      onChange={e => { try { setEditando({ ...editando, dados_mentoria: JSON.parse(e.target.value) }) } catch {} }}
-                      className="mt-1 w-full bg-panel border border-line rounded-lg px-3 py-2 text-xs font-mono text-cream focus:outline-none focus:border-gold/60" />
-                  </label>
-                  <label className="block text-xs text-dim">System prompt
-                    <textarea rows={10} value={editando.system_prompt ?? ''}
-                      onChange={e => setEditando({ ...editando, system_prompt: e.target.value })}
-                      className="mt-1 w-full bg-panel border border-line rounded-lg px-3 py-2 text-xs text-cream leading-relaxed focus:outline-none focus:border-gold/60" />
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <label className="text-xs text-dim flex items-center gap-2">
-                      <input type="checkbox" checked={editando.active}
-                        onChange={e => setEditando({ ...editando, active: e.target.checked })} className="accent-[#f5b942]" />
-                      agente ativo
-                    </label>
-                    <button onClick={salvarProfile} disabled={salvando}
-                      className="ml-auto bg-gold text-ink font-semibold rounded-lg px-5 py-2 text-sm hover:brightness-110 transition disabled:opacity-50">
-                      {salvando ? 'Salvando…' : 'Salvar'}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+        <h1 className="font-display font-bold text-2xl mb-2">Configuração</h1>
+        <p className="text-xs text-dim">
+          A edição dos agentes (prompts por seção, preços, palavras-chave, histórico de versões)
+          fica na aba <b className="text-gold">🤖 Agentes</b>.
+        </p>
       </section>
 
       {/* Base de conhecimento */}
