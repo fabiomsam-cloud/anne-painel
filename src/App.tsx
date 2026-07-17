@@ -7,6 +7,7 @@ import Escalacoes from './components/Escalacoes'
 import Kanban from './components/Kanban'
 import Metricas from './components/Metricas'
 import Agentes from './components/Agentes'
+import Disparos from './components/Disparos'
 import Config from './components/Config'
 
 const TABS = [
@@ -14,6 +15,7 @@ const TABS = [
   { id: 'escalacoes', label: 'Escalações', icon: '🚨' },
   { id: 'kanban', label: 'Pipeline', icon: '📋' },
   { id: 'agentes', label: 'Agentes', icon: '🤖' },
+  { id: 'disparos', label: 'Disparos', icon: '📣' },
   { id: 'metricas', label: 'Métricas', icon: '📈' },
   { id: 'config', label: 'Configuração', icon: '⚙️' },
 ] as const
@@ -88,6 +90,7 @@ export default function App() {
         {tab === 'escalacoes' && <Escalacoes irParaInbox={() => setTab('inbox')} />}
         {tab === 'kanban' && <Kanban />}
         {tab === 'agentes' && <Agentes />}
+        {tab === 'disparos' && <Disparos />}
         {tab === 'metricas' && <Metricas />}
         {tab === 'config' && <Config />}
       </main>
