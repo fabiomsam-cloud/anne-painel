@@ -19,7 +19,7 @@ export default function Disparos() {
   const [detalhe, setDetalhe] = useState<string | null>(null)
   const [recipients, setRecipients] = useState<Recipient[]>([])
   const [form, setForm] = useState({ name: '', agent_slug: '', csv: '',
-    interval_min_s: 60, interval_max_s: 180, daily_cap: 200 })
+    interval_min_s: 5, interval_max_s: 10, daily_cap: 1000 })
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState('')
 
@@ -108,7 +108,7 @@ export default function Disparos() {
       {msg && <div className="rise border border-win/40 bg-win/10 text-win text-sm rounded-xl px-4 py-3">{msg}</div>}
 
       <div className="flex items-center justify-between">
-        <h1 className="font-display font-bold text-2xl">Disparo Não Oficial</h1>
+        <h1 className="font-display font-bold text-2xl">Disparo Oficial</h1>
         <button onClick={() => setCriando(!criando)}
           className="bg-gold text-ink font-semibold rounded-lg px-4 py-2 text-sm hover:brightness-110 transition">
           {criando ? 'Fechar' : '＋ Nova campanha'}
@@ -177,7 +177,7 @@ export default function Disparos() {
                 onChange={e => setForm({ ...form, daily_cap: +e.target.value })} />
             </label>
           </div>
-          <p className="text-[11px] text-dim/70">Na API oficial o ritmo pode ser maior (padrão: 60–180s, 200/dia). O limite real é o tier da Meta (começa em 250 conversas/dia e sobe com o uso saudável) e a qualidade do número.</p>
+          <p className="text-[11px] text-dim/70">Intervalo de 5s ≈ 12 envios/min ≈ 700/hora. O limite REAL é o tier diário da Meta (veja em WhatsApp Manager → seu número → "Limite de mensagens") e a qualidade do número: NUNCA configure o teto diário acima do seu tier. Espalhar uma lista grande ao longo do dia continua sendo bom para a qualidade — respostas chegam aos poucos e a IA atende com calma.</p>
           <button onClick={criar} disabled={salvando}
             className="bg-gold text-ink font-semibold rounded-lg px-6 py-2.5 text-sm hover:brightness-110 transition disabled:opacity-50">
             {salvando ? 'Criando…' : 'Criar campanha (rascunho)'}
