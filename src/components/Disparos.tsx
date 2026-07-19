@@ -6,19 +6,20 @@ type Stats = {
   total: number; pendentes: number; enviados: number; pulados: number; falhas: number; respostas: number
 }
 type Recipient = { id: string; name: string | null; phone: string; status: string; sent_at: string | null }
+type Template = { name: string; body: string; buttons: string[]; category: string }
 
-const VARIANTES_EXEMPLO = `Oi {nome}! Aqui é a Anne, do Sou Concurseiro e Vou Passar 😊 Vi seu interesse no concurso — posso te mandar uma dica rápida de por onde começar?
-{nome}, tudo bem? Sou a Anne, da equipe do Prof. Fábio Silva. Tenho uma orientação de estudos que pode te ajudar no concurso — quer que eu te conte?
-Oi {nome}! Anne aqui, do Grupo SOU 👋 Estamos ajudando quem vai prestar o concurso a montar o plano de estudos. Posso te fazer 1 pergunta rápida?`
+const TEMPLATES_URL = 'https://workflows.manager03.scvpgti.com.br/webhook/anne/meta/templates'
 
 export default function Disparos() {
   const [stats, setStats] = useState<Stats[]>([])
   const [profiles, setProfiles] = useState<{ slug: string; name: string }[]>([])
+  const [templates, setTemplates] = useState<Template[]>([])
+  const [selTpl, setSelTpl] = useState<string[]>([])
   const [criando, setCriando] = useState(false)
   const [detalhe, setDetalhe] = useState<string | null>(null)
   const [recipients, setRecipients] = useState<Recipient[]>([])
-  const [form, setForm] = useState({ name: '', agent_slug: '', variants: VARIANTES_EXEMPLO, csv: '',
-    interval_min_s: 180, interval_max_s: 420, daily_cap: 60 })
+  const [form, setForm] = useState({ name: '', agent_slug: '', csv: '',
+    interval_min_s: 60, interval_max_s: 180, daily_cap: 200 })
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState('')
 
@@ -33,6 +34,9 @@ export default function Disparos() {
   }
   useEffect(() => {
     carregar()
+    fetch(TEMPLATES_URL).then(r => r.json())
+      .then(d => setTemplates((d.templates ?? []).filter((t: Template) => t.category === 'MARKETING')))
+      .catch(() => setTemplates([]))
     const t = setInterval(carregar, 20000)
     return () => clearInterval(t)
   }, [])
@@ -48,10 +52,10 @@ export default function Disparos() {
   }
 
   const criar = async () => {
-    const variants = form.variants.split('\n').map(v => v.trim()).filter(Boolean)
+    const variants = templates.filter(t => selTpl.includes(t.name)).map(t => ({ name: t.name, body: t.body }))
     const linhas = form.csv.split('\n').map(l => l.trim()).filter(Boolean)
     if (!form.name || !form.agent_slug) return flash('Preencha nome e agente.')
-    if (variants.length < 3) return flash('Use no MÍNIMO 3 variantes de mensagem (anti-ban).')
+    if (variants.length < 1) return flash('Selecione ao menos 1 template aprovado (ideal: 2-3, rotacionados).')
     if (!linhas.length) return flash('Cole a lista de leads (Nome;Telefone — um por linha).')
     setSalvando(true)
     const { data: u } = await supabase.auth.getUser()
@@ -111,11 +115,11 @@ export default function Disparos() {
         </button>
       </div>
 
-      <div className="border border-danger/30 bg-danger/5 rounded-xl p-4 text-xs text-dim leading-relaxed">
-        ⚠️ <b className="text-danger">Número não-oficial (Z-API) — risco de banimento é real.</b> Proteções ativas:
-        ritmo lento aleatório, janela 8h–21h, teto diário, mínimo de 3 variantes rotacionadas, pula opt-outs e conversas ativas.
-        Regras de ouro: só dispare para leads que já se relacionaram com o Grupo SOU; comece com listas pequenas (20–50);
-        se a taxa de resposta ficar abaixo de ~15%, PAUSE e melhore a mensagem antes de continuar.
+      <div className="border border-teal/30 bg-teal/5 rounded-xl p-4 text-xs text-dim leading-relaxed">
+        ✅ <b className="text-teal">Disparo OFICIAL (Meta Cloud API)</b> — templates aprovados, sem risco de banimento.
+        A Meta cobra por mensagem de marketing (~R$ 0,35–0,60). O lead que responder (ou tocar num botão) cai direto
+        no agente da campanha. Boas práticas: 2–3 templates rotacionados, listas de leads que conhecem o Grupo SOU,
+        e taxa de resposta baixa (&lt;10%) = pause e melhore o template — protege a qualidade (selo verde) do número.
       </div>
 
       {criando && (
@@ -133,10 +137,28 @@ export default function Disparos() {
               </select>
             </label>
           </div>
-          <label className="block text-xs text-dim">Variantes da mensagem — UMA por linha, mínimo 3 (rotacionadas automaticamente; use {'{nome}'})
-            <textarea rows={4} className={inp + ' mt-1 leading-relaxed'} value={form.variants}
-              onChange={e => setForm({ ...form, variants: e.target.value })} />
-          </label>
+          <div className="block text-xs text-dim">
+            Templates aprovados (selecione 2–3 — rotacionados automaticamente; {'{{1}}'} vira o nome do lead)
+            <div className="mt-1 space-y-2 max-h-56 overflow-y-auto">
+              {templates.length === 0 && <div className="text-dim/60 text-xs py-2">Carregando templates aprovados…</div>}
+              {templates.map(t => (
+                <label key={t.name} className={`flex gap-3 items-start border rounded-lg p-3 cursor-pointer transition
+                  ${selTpl.includes(t.name) ? 'border-gold/50 bg-gold/5' : 'border-line bg-panel'}`}>
+                  <input type="checkbox" className="accent-[#f5b942] mt-0.5" checked={selTpl.includes(t.name)}
+                    onChange={e => setSelTpl(e.target.checked ? [...selTpl, t.name] : selTpl.filter(n => n !== t.name))} />
+                  <div className="min-w-0">
+                    <div className="font-mono text-[11px] text-gold">{t.name}</div>
+                    <div className="text-[11px] text-dim leading-relaxed whitespace-pre-wrap">{t.body}</div>
+                    {t.buttons.length > 0 && (
+                      <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                        {t.buttons.map(b => <span key={b} className="text-[10px] px-2 py-0.5 rounded-full border border-teal/30 text-teal">{b}</span>)}
+                      </div>
+                    )}
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
           <label className="block text-xs text-dim">Leads — um por linha, formato Nome;Telefone (aceita vírgula/tab)
             <textarea rows={6} className={inp + ' mt-1 font-mono text-xs'} placeholder={'Maria Silva;5592988887777\nJoão Souza;5592977776666'}
               value={form.csv} onChange={e => setForm({ ...form, csv: e.target.value })} />
@@ -155,7 +177,7 @@ export default function Disparos() {
                 onChange={e => setForm({ ...form, daily_cap: +e.target.value })} />
             </label>
           </div>
-          <p className="text-[11px] text-dim/70">Padrão seguro: 180–420s (≈10-15 envios/hora) e 60/dia. Chip novo? Comece com teto 20–30/dia na primeira semana.</p>
+          <p className="text-[11px] text-dim/70">Na API oficial o ritmo pode ser maior (padrão: 60–180s, 200/dia). O limite real é o tier da Meta (começa em 250 conversas/dia e sobe com o uso saudável) e a qualidade do número.</p>
           <button onClick={criar} disabled={salvando}
             className="bg-gold text-ink font-semibold rounded-lg px-6 py-2.5 text-sm hover:brightness-110 transition disabled:opacity-50">
             {salvando ? 'Criando…' : 'Criar campanha (rascunho)'}
