@@ -7,7 +7,7 @@ type Esc = {
   conversations: { id: string; status: string; contacts: { name: string | null; phone: string } }
 }
 
-export default function Escalacoes({ irParaInbox }: { irParaInbox: () => void }) {
+export default function Escalacoes({ irParaInbox }: { irParaInbox: (convId?: string) => void }) {
   const [escs, setEscs] = useState<Esc[]>([])
   const [mostrarResolvidas, setMostrarResolvidas] = useState(false)
 
@@ -28,11 +28,14 @@ export default function Escalacoes({ irParaInbox }: { irParaInbox: () => void })
     return () => { supabase.removeChannel(ch) }
   }, [])
 
+  // Atender = assumir a escalação + conversa em modo humano + abrir a conversa no Inbox
   const claim = async (e: Esc) => {
     const { data: u } = await supabase.auth.getUser()
     await supabase.from('escalations').update({
       status: 'claimed', claimed_by: u.user?.email ?? 'operador', claimed_at: new Date().toISOString(),
     }).eq('id', e.id)
+    await supabase.from('conversations').update({ status: 'human' }).eq('id', e.conversations.id)
+    irParaInbox(e.conversations.id)
   }
 
   const resolver = async (e: Esc, devolverIa: boolean) => {
@@ -46,7 +49,7 @@ export default function Escalacoes({ irParaInbox }: { irParaInbox: () => void })
   const minutosAberta = (e: Esc) => Math.round((Date.now() - new Date(e.created_at).getTime()) / 60000)
 
   return (
-    <div className="h-full overflow-y-auto p-6">
+    <div className="h-full overflow-y-auto p-4 md:p-6">
       <div className="flex items-center justify-between mb-6">
         <h1 className="font-display font-bold text-2xl">Escalações</h1>
         <label className="text-xs text-dim flex items-center gap-2 cursor-pointer">
@@ -93,13 +96,17 @@ export default function Escalacoes({ irParaInbox }: { irParaInbox: () => void })
                 )}
                 {e.status !== 'resolved' && (
                   <>
-                    <button onClick={irParaInbox}
+                    <button onClick={() => irParaInbox(e.conversations.id)}
                       className="text-xs text-dim border border-line rounded-lg px-3 py-1.5 hover:text-cream transition">
                       Abrir no Inbox
                     </button>
                     <button onClick={() => resolver(e, true)}
                       className="text-xs font-semibold bg-teal/15 text-teal border border-teal/40 rounded-lg px-3 py-1.5 hover:bg-teal/25 transition">
                       Resolver + IA ↩
+                    </button>
+                    <button onClick={() => resolver(e, false)} title="Marca como resolvida e some desta tela; a conversa fica como está"
+                      className="text-xs font-semibold bg-win/10 text-win border border-win/40 rounded-lg px-3 py-1.5 hover:bg-win/20 transition">
+                      ✓ Encerrar
                     </button>
                   </>
                 )}

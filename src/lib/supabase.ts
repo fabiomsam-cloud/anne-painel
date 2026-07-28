@@ -11,6 +11,17 @@ export const AGENT_LABEL: Record<string, string> = {
   roteador: 'Triagem',
   elite_prf: 'Elite PRF',
   elite_tjam: 'Elite TJ-AM',
+  elite_prf_adm: 'Elite PRF Adm',
+}
+
+// Completa o AGENT_LABEL com os agentes cadastrados no banco — agente novo
+// aparece nos filtros sem precisar mexer no código. Os apelidos acima têm
+// prioridade; para os demais, deriva um rótulo curto a partir do name.
+export async function carregarAgentLabels() {
+  const { data } = await supabase.from('agent_profiles').select('slug,name')
+  for (const a of data ?? []) {
+    if (!AGENT_LABEL[a.slug]) AGENT_LABEL[a.slug] = (a.name ?? a.slug).replace(/^Especialista\s+/i, '')
+  }
 }
 
 export const STATUS_META: Record<string, { label: string; cls: string }> = {

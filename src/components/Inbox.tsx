@@ -3,12 +3,27 @@ import { supabase, AGENT_LABEL, STATUS_META, fmtHora, fmtFone } from '../lib/sup
 
 type Conv = {
   id: string; status: string; current_agent_slug: string; last_message_at: string | null
+  last_user_message_at: string | null
   contexto: any
   contacts: { id: string; name: string | null; phone: string; tags: string[]; client_memory: any; opted_out: boolean }
 }
 type Msg = {
   id: string; from_type: string; type: string; content: string | null; transcript: string | null
   status: string; created_at: string; metadata: any; agent_slug: string | null
+}
+type Template = { name: string; body: string; buttons: string[]; category: string }
+
+const TEMPLATES_URL = 'https://workflows.manager03.scvpgti.com.br/webhook/anne/meta/templates'
+const SEND_TPL_URL = 'https://workflows.manager03.scvpgti.com.br/webhook/anne/meta/send-template'
+const JANELA_MS = 24 * 60 * 60 * 1000
+
+// janela de 24h da Meta: aberta enquanto a ÚLTIMA mensagem do lead tem < 24h
+function janela(c: Conv | null, agora: number) {
+  const ts = c?.last_user_message_at ? new Date(c.last_user_message_at).getTime() : 0
+  const resta = ts + JANELA_MS - agora
+  if (!ts || resta <= 0) return { aberta: false, label: 'Janela fechada' }
+  const h = Math.floor(resta / 3600000), m = Math.floor((resta % 3600000) / 60000)
+  return { aberta: true, label: `${h}h ${String(m).padStart(2, '0')}min` }
 }
 
 const FROM_STYLE: Record<string, string> = {
@@ -18,34 +33,90 @@ const FROM_STYLE: Record<string, string> = {
   system: 'self-center bg-panel border-line text-dim text-xs',
 }
 
-export default function Inbox() {
+export default function Inbox({ convInicial, aoConsumir }: { convInicial?: string | null; aoConsumir?: () => void } = {}) {
   const [convs, setConvs] = useState<Conv[]>([])
   const [sel, setSel] = useState<Conv | null>(null)
   const [msgs, setMsgs] = useState<Msg[]>([])
   const [filtroAgente, setFiltroAgente] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
+  const [filtroJanela, setFiltroJanela] = useState<'' | 'aberta' | 'fechada'>('')
   const [busca, setBusca] = useState('')
   const [texto, setTexto] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [followup, setFollowup] = useState<any>(null)
+  const [agora, setAgora] = useState(Date.now())
+  const [tpls, setTpls] = useState<Template[]>([])
+  const [selTplName, setSelTplName] = useState('')
+  const [enviandoTpl, setEnviandoTpl] = useState(false)
+  const [msgTpl, setMsgTpl] = useState('')
+  const [infoAberto, setInfoAberto] = useState(false)
+  const [kb, setKb] = useState<{ title: string; doc_type: string; content: string; agent: string } | null>(null)
+  const [kbAgentes, setKbAgentes] = useState<{ slug: string; name: string }[]>([])
+  const [kbEnviando, setKbEnviando] = useState(false)
   const fimRef = useRef<HTMLDivElement>(null)
 
+  const buscaRef = useRef('')
+  buscaRef.current = busca
+
   const carregarConvs = async () => {
-    const { data } = await supabase
-      .from('conversations')
-      .select('id,status,current_agent_slug,last_message_at,contexto,contacts(id,name,phone,tags,client_memory,opted_out)')
-      .order('last_message_at', { ascending: false, nullsFirst: false })
-      .limit(200)
-    setConvs((data as any) ?? [])
+    const SEL = 'id,status,current_agent_slug,last_message_at,last_user_message_at,contexto,contacts(id,name,phone,tags,client_memory,opted_out)'
+    const q = buscaRef.current.trim()
+    if (q) {
+      // busca no BANCO (nome/telefone), não só nas 200 carregadas
+      const digits = q.replace(/\D/g, '')
+      const { data: cts } = await supabase.from('contacts').select('id')
+        .or(digits.length >= 4 ? `name.ilike.%${q}%,phone.like.%${digits}%` : `name.ilike.%${q}%`)
+        .limit(100)
+      const ids = ((cts as any) ?? []).map((c: any) => c.id)
+      if (!ids.length) { setConvs([]); return }
+      const { data } = await supabase.from('conversations').select(SEL)
+        .in('contact_id', ids)
+        .order('last_message_at', { ascending: false, nullsFirst: false }).limit(100)
+      setConvs((data as any) ?? [])
+      return
+    }
+    // sem busca: 200 recentes + TODAS as human/won (não podem sumir num dia de disparo)
+    const [rec, fixas] = await Promise.all([
+      supabase.from('conversations').select(SEL)
+        .order('last_message_at', { ascending: false, nullsFirst: false }).limit(200),
+      supabase.from('conversations').select(SEL).in('status', ['human', 'won'])
+        .order('last_message_at', { ascending: false, nullsFirst: false }).limit(200),
+    ])
+    const vistos = new Set<string>()
+    const juntos = [...((rec.data as any) ?? []), ...((fixas.data as any) ?? [])]
+      .filter((c: any) => { if (vistos.has(c.id)) return false; vistos.add(c.id); return true })
+      .sort((a: any, b: any) => String(b.last_message_at ?? '').localeCompare(String(a.last_message_at ?? '')))
+    setConvs(juntos as any)
   }
+
+  // vindo das Escalações: abre direto a conversa do lead
+  useEffect(() => {
+    if (!convInicial) return
+    supabase.from('conversations')
+      .select('id,status,current_agent_slug,last_message_at,last_user_message_at,contexto,contacts(id,name,phone,tags,client_memory,opted_out)')
+      .eq('id', convInicial).single()
+      .then(({ data }) => { if (data) setSel(data as any) })
+    aoConsumir?.()
+  }, [convInicial])
 
   useEffect(() => {
     carregarConvs()
     const ch = supabase.channel('inbox-convs')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, carregarConvs)
       .subscribe()
-    return () => { supabase.removeChannel(ch) }
+    // relógio p/ contagem regressiva da janela 24h
+    const t = setInterval(() => setAgora(Date.now()), 30000)
+    return () => { supabase.removeChannel(ch); clearInterval(t) }
   }, [])
+
+  // templates aprovados: carrega quando abrir uma conversa com janela fechada
+  useEffect(() => {
+    if (!sel || tpls.length) return
+    if (janela(sel, agora).aberta) return
+    fetch(TEMPLATES_URL).then(r => r.json())
+      .then(d => setTpls(d.templates ?? []))
+      .catch(() => setTpls([]))
+  }, [sel?.id])
 
   const carregarMsgs = async (convId: string) => {
     const { data } = await supabase
@@ -74,6 +145,14 @@ export default function Inbox() {
 
   useEffect(() => { fimRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs.length])
 
+  // mantém a conversa aberta em sincronia com o realtime (janela 24h, status)
+  useEffect(() => {
+    if (!sel) return
+    const fresh = convs.find(c => c.id === sel.id)
+    if (fresh && (fresh.last_user_message_at !== sel.last_user_message_at || fresh.status !== sel.status))
+      setSel(fresh)
+  }, [convs])
+
   const assumir = async () => {
     if (!sel) return
     await supabase.from('conversations').update({ status: 'human' }).eq('id', sel.id)
@@ -86,6 +165,11 @@ export default function Inbox() {
     await supabase.from('escalations').update({ status: 'resolved', resolved_at: new Date().toISOString() })
       .eq('conversation_id', sel.id).eq('status', 'open')
     setSel({ ...sel, status: 'ia' })
+    // IA retoma imediatamente a partir da resposta do time (regra 13b)
+    fetch('https://workflows.manager03.scvpgti.com.br/webhook/anne/painel/devolver', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversation_id: sel.id }),
+    }).catch(() => {})
   }
 
   const apagarConversa = async () => {
@@ -117,22 +201,85 @@ export default function Inbox() {
     setTexto(''); setEnviando(false)
   }
 
+  // 📚 balão → base de conhecimento: monta pergunta+resposta e abre a gaveta
+  const abrirKb = async (m: Msg) => {
+    if (!sel) return
+    if (!kbAgentes.length) {
+      const { data } = await supabase.from('agent_profiles').select('slug,name')
+        .eq('active', true).neq('slug', 'roteador').order('slug')
+      setKbAgentes(((data as any) ?? []))
+    }
+    const texto = (m.transcript || m.content || '').trim()
+    let pergunta = '', resposta = ''
+    if (m.from_type === 'user') { pergunta = texto }
+    else {
+      resposta = texto
+      const anterior = [...msgs].reverse().find(x => x.from_type === 'user' && x.created_at < m.created_at)
+      pergunta = (anterior?.transcript || anterior?.content || '').trim()
+    }
+    const agente = sel.current_agent_slug === 'roteador' ? '' : sel.current_agent_slug
+    setKb({
+      title: (pergunta || resposta).slice(0, 70),
+      doc_type: 'faq',
+      content: pergunta ? `Pergunta do lead: "${pergunta}"\n\nResposta oficial: ${resposta}` : resposta,
+      agent: agente,
+    })
+  }
+
+  const enviarKb = async () => {
+    if (!kb || !kb.title.trim() || !kb.content.trim() || !kb.agent) return
+    setKbEnviando(true)
+    const { data: u } = await supabase.auth.getUser()
+    const { error } = await supabase.from('knowledge_documents').insert({
+      agent_slug: kb.agent, title: kb.title.trim(), doc_type: kb.doc_type,
+      raw_content: kb.content.trim(), source: 'inbox', created_by: u.user?.email ?? 'painel',
+    })
+    setKbEnviando(false)
+    if (error) return setMsgTpl('⚠️ Erro ao enviar para a base: ' + error.message)
+    setKb(null)
+    setMsgTpl('📚 Enviado para a base do agente — ingestão automática em andamento; a Anne já usa na próxima conversa.')
+    setTimeout(() => setMsgTpl(''), 8000)
+  }
+
+  const enviarTemplate = async () => {
+    if (!sel || !selTplName || enviandoTpl) return
+    setEnviandoTpl(true); setMsgTpl('')
+    try {
+      const r = await fetch(SEND_TPL_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversation_id: sel.id, template_name: selTplName }),
+      })
+      const d = await r.json()
+      setMsgTpl(d.ok ? '✅ Template enviado — quando o lead responder, a janela reabre por 24h.'
+        : '⚠️ ' + (d.erro || 'Falha no envio.'))
+      if (d.ok) setSelTplName('')
+    } catch {
+      setMsgTpl('⚠️ Falha de rede ao enviar o template.')
+    }
+    setEnviandoTpl(false)
+  }
+
+  // busca é feita no banco (carregarConvs); aqui só os filtros locais
+  useEffect(() => {
+    const t = setTimeout(carregarConvs, 350)
+    return () => clearTimeout(t)
+  }, [busca])
+
   const lista = convs.filter(c => {
     if (filtroAgente && c.current_agent_slug !== filtroAgente) return false
     if (filtroStatus && c.status !== filtroStatus) return false
-    if (busca) {
-      const q = busca.toLowerCase()
-      if (!(c.contacts?.name ?? '').toLowerCase().includes(q) && !(c.contacts?.phone ?? '').includes(q)) return false
-    }
+    if (filtroJanela && (janela(c, agora).aberta ? 'aberta' : 'fechada') !== filtroJanela) return false
     return true
   })
 
   const mem = sel?.contacts?.client_memory ?? {}
+  const jan = janela(sel, agora)
+  const primeiroNome = (sel?.contacts?.name ?? '').trim().split(/\s+/)[0] || 'concurseiro(a)'
 
   return (
     <div className="h-full flex">
-      {/* Lista de conversas */}
-      <div className="w-80 shrink-0 border-r border-line flex flex-col">
+      {/* Lista de conversas — no mobile some quando uma conversa está aberta */}
+      <div className={`${sel ? 'hidden lg:flex' : 'flex'} w-full lg:w-80 shrink-0 border-r border-line flex-col`}>
         <div className="p-3 border-b border-line space-y-2">
           <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar nome ou telefone…"
             className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gold/60 placeholder:text-dim/50" />
@@ -147,6 +294,16 @@ export default function Inbox() {
               <option value="">Todos status</option>
               {Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
+          </div>
+          <div className="flex gap-1.5 items-center">
+            <span className="text-[10px] font-mono text-dim uppercase tracking-widest mr-1">Janela 24h</span>
+            {([['', 'Todas'], ['aberta', '🟢 Aberta'], ['fechada', '🔴 Fechada']] as const).map(([v, lbl]) => (
+              <button key={v} onClick={() => setFiltroJanela(v)}
+                className={`text-[11px] px-2.5 py-1 rounded-lg border transition
+                  ${filtroJanela === v ? 'border-gold/60 bg-gold/10 text-cream' : 'border-line text-dim hover:text-cream'}`}>
+                {lbl}
+              </button>
+            ))}
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
@@ -165,6 +322,8 @@ export default function Inbox() {
                 <span className="text-[10px] px-1.5 py-0.5 rounded border border-line text-dim">
                   {AGENT_LABEL[c.current_agent_slug] ?? c.current_agent_slug}
                 </span>
+                <span title={janela(c, agora).aberta ? `Janela aberta · resta ${janela(c, agora).label}` : 'Janela de 24h fechada'}
+                  className="text-[10px] ml-auto">{janela(c, agora).aberta ? '🟢' : '🔴'}</span>
               </div>
             </button>
           ))}
@@ -173,7 +332,7 @@ export default function Inbox() {
       </div>
 
       {/* Thread */}
-      <div className="flex-1 min-w-0 flex flex-col">
+      <div className={`${sel ? 'flex' : 'hidden lg:flex'} flex-1 min-w-0 flex-col`}>
         {!sel ? (
           <div className="flex-1 grid place-items-center text-dim">
             <div className="text-center">
@@ -183,12 +342,20 @@ export default function Inbox() {
           </div>
         ) : (
           <>
-            <div className="px-5 py-3 border-b border-line flex items-center gap-3">
+            <div className="px-3 md:px-5 py-3 border-b border-line flex items-center gap-2 md:gap-3">
+              <button onClick={() => setSel(null)} className="lg:hidden text-dim hover:text-cream text-lg px-1 shrink-0">←</button>
               <div className="min-w-0">
                 <div className="font-display font-semibold truncate">{sel.contacts?.name || 'Sem nome'}</div>
                 <div className="font-mono text-[11px] text-dim">{fmtFone(sel.contacts?.phone)}</div>
               </div>
+              <span className={`text-[11px] font-mono px-2 py-1 rounded-lg border shrink-0 ${
+                jan.aberta ? 'text-win border-win/40 bg-win/10' : 'text-danger border-danger/40 bg-danger/10'}`}
+                title={jan.aberta ? 'Tempo restante da janela de 24h (conversa livre)' : 'Sem conversa livre — envie um template p/ reabrir'}>
+                {jan.aberta ? `🕐 ${jan.label}` : '🔒 Janela fechada'}
+              </span>
               <div className="ml-auto flex items-center gap-2">
+                <button onClick={() => setInfoAberto(true)} title="Dados do lead"
+                  className="xl:hidden text-xs text-dim border border-line rounded-lg px-2.5 py-1.5 hover:text-cream transition">ℹ️</button>
                 {sel.status === 'human' ? (
                   <button onClick={devolverIA}
                     className="text-xs font-semibold bg-teal/15 text-teal border border-teal/40 rounded-lg px-3 py-1.5 hover:bg-teal/25 transition">
@@ -208,38 +375,131 @@ export default function Inbox() {
             </div>
 
             <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-2">
+              {msgTpl && !kb && (
+                <div className="rise self-center text-xs rounded-lg border border-win/40 bg-win/10 text-win px-3 py-2">{msgTpl}</div>
+              )}
               {msgs.map(m => (
                 <div key={m.id} className={`rise max-w-[78%] border rounded-2xl px-3.5 py-2 ${FROM_STYLE[m.from_type] ?? FROM_STYLE.system}`}>
                   {m.metadata?.followup_step && (
                     <div className="text-[10px] font-mono text-gold/80 mb-1">⏰ follow-up · toque {m.metadata.followup_step}</div>
                   )}
                   {m.type === 'audio' && <div className="text-[10px] font-mono text-dim mb-1">🎙 áudio transcrito</div>}
+                  {m.type === 'template' && (
+                    <div className="text-[10px] font-mono text-teal/80 mb-1">
+                      📨 template{m.metadata?.janela_reaberta ? ' · reabertura de janela' : m.metadata?.broadcast ? ' · disparo' : ''}
+                    </div>
+                  )}
                   <div className="text-sm whitespace-pre-wrap break-words">{m.transcript || m.content}</div>
-                  <div className="text-[10px] font-mono text-dim/70 mt-1 text-right">
-                    {m.from_type === 'ia' ? '🤖 ' : m.from_type === 'human' ? '👤 ' : ''}{fmtHora(m.created_at)}
+                  <div className="text-[10px] font-mono text-dim/70 mt-1 text-right flex items-center justify-end gap-2">
+                    <button onClick={() => abrirKb(m)} title="Adicionar à base de conhecimento do agente"
+                      className="opacity-40 hover:opacity-100 transition">📚</button>
+                    <span>{m.from_type === 'ia' ? '🤖 ' : m.from_type === 'human' ? '👤 ' : ''}{fmtHora(m.created_at)}</span>
                   </div>
                 </div>
               ))}
               <div ref={fimRef} />
             </div>
 
-            <form onSubmit={enviar} className="p-4 border-t border-line flex gap-2">
-              <input value={texto} onChange={e => setTexto(e.target.value)}
-                placeholder={sel.status === 'human' ? 'Responder como humano…' : 'Assuma a conversa para responder (IA está atendendo)'}
-                disabled={sel.status !== 'human'}
-                className="flex-1 bg-panel border border-line rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-gold/60 disabled:opacity-40 placeholder:text-dim/50" />
-              <button disabled={sel.status !== 'human' || !texto.trim() || enviando}
-                className="bg-gold text-ink font-semibold rounded-xl px-5 text-sm disabled:opacity-30 hover:brightness-110 transition">
-                Enviar
-              </button>
-            </form>
+            {jan.aberta ? (
+              <form onSubmit={enviar} className="p-4 border-t border-line flex gap-2">
+                <input value={texto} onChange={e => setTexto(e.target.value)}
+                  placeholder={sel.status === 'human' ? 'Responder como humano…' : 'Assuma a conversa para responder (IA está atendendo)'}
+                  disabled={sel.status !== 'human'}
+                  className="flex-1 bg-panel border border-line rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-gold/60 disabled:opacity-40 placeholder:text-dim/50" />
+                <button disabled={sel.status !== 'human' || !texto.trim() || enviando}
+                  className="bg-gold text-ink font-semibold rounded-xl px-5 text-sm disabled:opacity-30 hover:brightness-110 transition">
+                  Enviar
+                </button>
+              </form>
+            ) : (
+              <div className="p-4 border-t border-line space-y-2">
+                {msgTpl && <div className="rise text-xs rounded-lg border border-line bg-panel px-3 py-2">{msgTpl}</div>}
+                {sel.status !== 'human' ? (
+                  <div className="text-xs text-dim text-center py-1">
+                    🔒 Janela de 24h fechada — <b className="text-cream">assuma a conversa</b> para reabrir com um template aprovado.
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-[11px] text-dim">
+                      🔒 Janela fechada (o lead não manda mensagem há mais de 24h). A Meta só permite <b className="text-cream">template
+                      aprovado</b> — escolha um abaixo para reabrir a conversa:
+                    </div>
+                    <div className="flex gap-2">
+                      <select value={selTplName} onChange={e => setSelTplName(e.target.value)}
+                        className="flex-1 bg-panel border border-line rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gold/60">
+                        <option value="">{tpls.length ? 'Escolha o template…' : 'Carregando templates…'}</option>
+                        {tpls.map(t => <option key={t.name} value={t.name}>[{t.category}] {t.name}</option>)}
+                      </select>
+                      <button onClick={enviarTemplate} disabled={!selTplName || enviandoTpl}
+                        className="bg-gold text-ink font-semibold rounded-xl px-5 text-sm disabled:opacity-30 hover:brightness-110 transition">
+                        {enviandoTpl ? 'Enviando…' : '📨 Enviar template'}
+                      </button>
+                    </div>
+                    {selTplName && (
+                      <div className="text-[11px] text-dim border border-teal/25 bg-teal/5 rounded-lg px-3 py-2 whitespace-pre-wrap">
+                        {(tpls.find(t => t.name === selTplName)?.body ?? '').split('{{1}}').join(primeiroNome)}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
 
-      {/* Painel do lead */}
+      {/* Gaveta: adicionar balão à base de conhecimento */}
+      {kb && (
+        <>
+          <div className="fixed inset-0 z-40 bg-ink/60" onClick={() => setKb(null)} />
+          <div className="fixed inset-y-0 right-0 z-50 w-[26rem] max-w-[92vw] bg-panel border-l border-line shadow-2xl overflow-y-auto p-5 space-y-3">
+            <div className="flex items-center">
+              <h2 className="font-display font-semibold">📚 Adicionar à base de conhecimento</h2>
+              <button onClick={() => setKb(null)} className="ml-auto text-dim hover:text-cream text-xl leading-none">✕</button>
+            </div>
+            <p className="text-[11px] text-dim leading-relaxed">
+              Revise o conteúdo antes de enviar — vira conhecimento permanente e a Anne passa a usar em TODAS as conversas do agente.
+            </p>
+            <label className="block text-xs text-dim">Agente de destino
+              <select className="w-full mt-1 bg-panel2 border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gold/60"
+                value={kb.agent} onChange={e => setKb({ ...kb, agent: e.target.value })}>
+                <option value="">Selecione…</option>
+                {kbAgentes.map(a => <option key={a.slug} value={a.slug}>{a.name}</option>)}
+              </select>
+            </label>
+            <label className="block text-xs text-dim">Título do documento
+              <input className="w-full mt-1 bg-panel2 border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gold/60"
+                value={kb.title} onChange={e => setKb({ ...kb, title: e.target.value })} />
+            </label>
+            <label className="block text-xs text-dim">Tipo da informação
+              <select className="w-full mt-1 bg-panel2 border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gold/60"
+                value={kb.doc_type} onChange={e => setKb({ ...kb, doc_type: e.target.value })}>
+                <option value="faq">FAQ</option><option value="mentoria">Mentoria</option>
+                <option value="edital">Edital / concurso</option><option value="outro">Outro</option>
+              </select>
+            </label>
+            <label className="block text-xs text-dim">Conteúdo
+              <textarea rows={12} className="w-full mt-1 bg-panel2 border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gold/60"
+                value={kb.content} onChange={e => setKb({ ...kb, content: e.target.value })} />
+            </label>
+            <button onClick={enviarKb} disabled={kbEnviando || !kb.title.trim() || !kb.content.trim() || !kb.agent}
+              className="w-full bg-teal/15 text-teal border border-teal/40 font-semibold rounded-lg py-2.5 text-sm hover:bg-teal/25 transition disabled:opacity-40">
+              {kbEnviando ? 'Enviando…' : 'Enviar para a base →'}
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Painel do lead — fixo no desktop largo; slide-over nas telas menores */}
+      {sel && infoAberto && (
+        <div className="xl:hidden fixed inset-0 z-40 bg-ink/60" onClick={() => setInfoAberto(false)} />
+      )}
       {sel && (
-        <div className="w-72 shrink-0 border-l border-line overflow-y-auto p-4 space-y-4">
+        <div className={`${infoAberto
+            ? 'fixed inset-y-0 right-0 z-50 w-80 max-w-[85vw] bg-panel shadow-2xl'
+            : 'hidden'} xl:static xl:block xl:w-72 xl:z-auto xl:shadow-none xl:bg-transparent shrink-0 border-l border-line overflow-y-auto p-4 space-y-4`}>
+          <button onClick={() => setInfoAberto(false)}
+            className="xl:hidden text-dim hover:text-cream text-lg float-right leading-none">✕</button>
           <div>
             <div className="text-[10px] font-mono text-dim uppercase tracking-widest mb-2">Lead</div>
             <div className="font-display font-semibold text-lg">{sel.contacts?.name || '—'}</div>

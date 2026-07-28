@@ -9,7 +9,8 @@ type Profile = {
 type Revision = {
   id: string; campo: string; old_value: any; changed_by: string | null; created_at: string
 }
-type Doc = { id: string; title: string; doc_type: string; status: string; updated_at: string }
+type Doc = { id: string; title: string; doc_type: string; status: string; updated_at: string
+  source: string | null; created_by: string | null; version: number }
 
 const SECOES: { key: string; titulo: string; ajuda: string; rows: number }[] = [
   { key: 'fase1_perguntas', titulo: 'Fase 1 · Perguntas de situação',
@@ -71,8 +72,8 @@ export default function Agentes() {
       .eq('agent_slug', p.slug).order('created_at', { ascending: false }).limit(10)
     setRevisoes((r as any) ?? [])
     const { data: d } = await supabase.from('knowledge_documents')
-      .select('id,title,doc_type,status,updated_at')
-      .eq('agent_slug', p.slug).order('updated_at', { ascending: false }).limit(20)
+      .select('id,title,doc_type,status,updated_at,source,created_by,version')
+      .eq('agent_slug', p.slug).order('updated_at', { ascending: false }).limit(50)
     setDocs((d as any) ?? [])
   }
 
@@ -109,6 +110,42 @@ export default function Agentes() {
     flash('Versão restaurada.')
     const { data } = await supabase.from('agent_profiles').select('*').eq('id', sel.id).single()
     if (data) abrirAgente(data as Profile)
+  }
+
+  const [docEdit, setDocEdit] = useState<{ id: string; title: string; doc_type: string; raw_content: string; version: number } | null>(null)
+
+  const abrirDoc = async (d: Doc) => {
+    const { data } = await supabase.from('knowledge_documents')
+      .select('raw_content').eq('id', d.id).single()
+    setDocEdit({ id: d.id, title: d.title, doc_type: d.doc_type,
+      raw_content: (data as any)?.raw_content ?? '', version: d.version })
+  }
+
+  // ajuste = nova versão (re-ingerida) + arquiva a antiga (sai do RAG na hora)
+  const salvarNovaVersao = async () => {
+    if (!sel || !docEdit) return
+    const { data: u } = await supabase.auth.getUser()
+    const { error } = await supabase.from('knowledge_documents').insert({
+      agent_slug: sel.slug, title: docEdit.title, doc_type: docEdit.doc_type,
+      raw_content: docEdit.raw_content, source: 'ajuste', version: docEdit.version + 1,
+      created_by: u.user?.email ?? 'painel',
+    })
+    if (error) return flash('Erro: ' + error.message)
+    await supabase.from('knowledge_chunks').delete().eq('document_id', docEdit.id)
+    await supabase.from('knowledge_documents').update({ status: 'archived' }).eq('id', docEdit.id)
+    setDocEdit(null)
+    flash(`Nova versão v${docEdit.version + 1} enviada — a antiga foi arquivada e saiu do ar imediatamente.`)
+    setTimeout(() => abrirAgente(sel), 4000)
+  }
+
+  const arquivarDoc = async () => {
+    if (!sel || !docEdit) return
+    if (!window.confirm('Arquivar este documento? A Anne para de usar este conteúdo imediatamente.')) return
+    await supabase.from('knowledge_chunks').delete().eq('document_id', docEdit.id)
+    await supabase.from('knowledge_documents').update({ status: 'archived' }).eq('id', docEdit.id)
+    setDocEdit(null)
+    flash('Documento arquivado — fora do RAG.')
+    abrirAgente(sel)
   }
 
   const enviarDoc = async () => {
@@ -346,13 +383,47 @@ export default function Agentes() {
 
       <section className="border border-line bg-panel/50 rounded-xl p-4 space-y-3">
         <h2 className="font-display font-semibold">Base de conhecimento deste agente</h2>
+        <p className="text-[11px] text-dim/70">Clique num documento para ver, ajustar (vira nova versão) ou arquivar. Itens 💬 vieram de conversas do Inbox.</p>
         {docs.map(d => (
-          <div key={d.id} className="flex items-center gap-3 text-sm border border-line/60 bg-panel/30 rounded-lg px-3 py-2">
-            <span className={`font-mono text-[10px] uppercase ${d.status === 'ready' ? 'text-win' : d.status === 'error' ? 'text-danger' : 'text-gold'}`}>● {d.status}</span>
+          <div key={d.id} onClick={() => abrirDoc(d)}
+            className={`flex items-center gap-3 text-sm border rounded-lg px-3 py-2 cursor-pointer transition
+              ${d.status === 'archived' ? 'border-line/40 bg-panel/20 opacity-50' : 'border-line/60 bg-panel/30 hover:border-gold/40'}`}>
+            <span className={`font-mono text-[10px] uppercase shrink-0 ${d.status === 'ready' ? 'text-win' : d.status === 'error' ? 'text-danger' : d.status === 'archived' ? 'text-dim' : 'text-gold'}`}>● {d.status}</span>
             <span className="truncate">{d.title}</span>
-            <span className="ml-auto font-mono text-[10px] text-dim/60">{d.doc_type} · {fmtHora(d.updated_at)}</span>
+            {d.source === 'inbox' && <span className="text-[10px] shrink-0" title="adicionado a partir de uma conversa">💬</span>}
+            {d.source === 'ajuste' && <span className="text-[10px] px-1.5 rounded-full border border-teal/30 text-teal shrink-0">v{d.version}</span>}
+            <span className="ml-auto font-mono text-[10px] text-dim/60 shrink-0">{d.doc_type} · {fmtHora(d.updated_at)}</span>
           </div>
         ))}
+        {docEdit && (
+          <div className="rise border border-gold/40 bg-panel rounded-xl p-4 space-y-3">
+            <div className="flex items-center">
+              <h3 className="font-display font-semibold text-sm">Ajustar documento (v{docEdit.version})</h3>
+              <button onClick={() => setDocEdit(null)} className="ml-auto text-dim hover:text-cream">✕</button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <input className={inp} value={docEdit.title}
+                onChange={e => setDocEdit({ ...docEdit, title: e.target.value })} />
+              <select className={inp} value={docEdit.doc_type}
+                onChange={e => setDocEdit({ ...docEdit, doc_type: e.target.value })}>
+                <option value="faq">FAQ</option><option value="edital">Edital / concurso</option>
+                <option value="mentoria">Mentoria</option><option value="outro">Outro</option>
+              </select>
+            </div>
+            <textarea rows={10} className={inp} value={docEdit.raw_content}
+              onChange={e => setDocEdit({ ...docEdit, raw_content: e.target.value })} />
+            <div className="flex gap-2">
+              <button onClick={salvarNovaVersao}
+                className="bg-teal/15 text-teal border border-teal/40 font-semibold rounded-lg px-4 py-2 text-sm hover:bg-teal/25 transition">
+                Salvar como nova versão →
+              </button>
+              <button onClick={arquivarDoc}
+                className="text-danger/80 border border-danger/30 rounded-lg px-4 py-2 text-sm hover:bg-danger/10 hover:text-danger transition">
+                Arquivar (tirar do ar)
+              </button>
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <input className={inp} placeholder="Título do documento" value={novoDoc.title}
             onChange={e => setNovoDoc({ ...novoDoc, title: e.target.value })} />
