@@ -30,6 +30,35 @@ type AgRow = {
   total_registradas: number; valor_total: number | null
 }
 
+// Período dos filtros: hoje/7/30 = janela móvel; tudo = sem filtro; custom = calendário
+type Periodo = { tipo: 'hoje' | 'd7' | 'd30' | 'tudo' | 'custom'; de: string; ate: string }
+function rangePeriodo(p: Periodo): { de: string | null; ate: string | null } {
+  const movel = { hoje: 1, d7: 7, d30: 30 } as Record<string, number>
+  if (movel[p.tipo]) return { de: new Date(Date.now() - movel[p.tipo] * 86400000).toISOString(), ate: null }
+  if (p.tipo === 'custom' && p.de) return {
+    de: new Date(p.de + 'T00:00:00').toISOString(),
+    ate: p.ate ? new Date(new Date(p.ate + 'T00:00:00').getTime() + 86400000).toISOString() : null,
+  }
+  return { de: null, ate: null }
+}
+function labelPeriodo(p: Periodo) {
+  if (p.tipo === 'hoje') return 'hoje'
+  if (p.tipo === 'd7') return '7 dias'
+  if (p.tipo === 'd30') return '30 dias'
+  if (p.tipo === 'custom') return `${p.de || '…'} → ${p.ate || 'hoje'}`
+  return 'todo período'
+}
+
+// Funil por agente/etapa (fn_funil_agentes — agregado no banco)
+type FunilRow = { agent_slug: string; bucket: string; total: number; parados: number }
+const FUNIL_COLS = [
+  { k: 'novo', label: '🆕 Novo', hint: 'nunca respondeu' },
+  { k: 'fase1', label: 'Fase 1' }, { k: 'fase2', label: 'Fase 2' },
+  { k: 'fase3', label: 'Fase 3' }, { k: 'fase4', label: 'Fase 4' },
+  { k: 'followup', label: '📨 Régua' }, { k: 'resgate', label: '😴 Dormant' },
+  { k: 'humano', label: '👤 Humano' }, { k: 'won', label: '✅ Matric.' },
+]
+
 // 🛡 Checkout blindado — leads do popup pré-Hubla (dados do SOU Data Core via proxy n8n)
 const BLINDADO_URL = 'https://workflows.manager03.scvpgti.com.br/webhook/anne/blindado/metricas'
 type BlinData = {
@@ -62,7 +91,8 @@ function Card({ titulo, valor, sub, destaque, onClick }:
 
 export default function Metricas() {
   const [m, setM] = useState<Record<string, Num>>({})
-  const [dias, setDias] = useState(7)
+  const [periodo, setPeriodo] = useState<Periodo>({ tipo: 'hoje', de: '', ate: '' })
+  const [funil, setFunil] = useState<FunilRow[]>([])
   const [lista, setLista] = useState<'vendas' | 'matriculados' | null>(null)
   const [vendas, setVendas] = useState<Venda[]>([])
   const [matriculados, setMatriculados] = useState<Matriculado[]>([])
@@ -77,17 +107,20 @@ export default function Metricas() {
   }, [])
 
   useEffect(() => {
-    const desde = new Date(Date.now() - dias * 86400000).toISOString()
+    const { de, ate } = rangePeriodo(periodo)
+    const per = (q: any, col = 'created_at') => {
+      if (de) q = q.gte(col, de)
+      if (ate) q = q.lt(col, ate)
+      return q
+    }
     ;(async () => {
       const [{ data: recips }, { data: convs }] = await Promise.all([
-        supabase.from('broadcast_recipients')
+        per(supabase.from('broadcast_recipients')
           .select('status,created_at,broadcast_campaigns!inner(name)')
-          .like('broadcast_campaigns.name', 'BLINDADO%')
-          .gte('created_at', desde).limit(5000),
-        supabase.from('conversations')
+          .like('broadcast_campaigns.name', 'BLINDADO%')).limit(5000),
+        per(supabase.from('conversations')
           .select('status,won_at,last_user_message_at,created_at')
-          .ilike('contexto->>origem_disparo', 'BLINDADO%')
-          .gte('created_at', desde).limit(5000),
+          .ilike('contexto->>origem_disparo', 'BLINDADO%')).limit(5000),
       ])
       const rs = (recips as any[]) ?? []
       const cs = (convs as any[]) ?? []
@@ -98,7 +131,14 @@ export default function Metricas() {
         won: cs.filter(c => c.status === 'won' || c.won_at).length,
       })
     })()
-  }, [dias])
+  }, [periodo])
+
+  // Funil por agente/etapa — agregação roda no banco (RPC), volta ~dezenas de linhas
+  useEffect(() => {
+    const { de, ate } = rangePeriodo(periodo)
+    supabase.rpc('fn_funil_agentes', { p_desde: de, p_ate: ate })
+      .then(({ data }) => setFunil(((data as any) ?? []) as FunilRow[]))
+  }, [periodo])
 
   useEffect(() => {
     supabase.from('vw_vendas_agentes').select('*').order('mes', { ascending: false })
@@ -110,7 +150,12 @@ export default function Metricas() {
   }, [])
 
   useEffect(() => {
-    const desde = new Date(Date.now() - dias * 86400000).toISOString()
+    const { de, ate } = rangePeriodo(periodo)
+    const per = (q: any, col = 'created_at') => {
+      if (de) q = q.gte(col, de)
+      if (ate) q = q.lt(col, ate)
+      return q
+    }
     const count = async (tabela: string, filtro: (q: any) => any): Promise<Num> => {
       const { count } = await filtro(supabase.from(tabela).select('*', { count: 'exact', head: true }))
       return count
@@ -119,17 +164,17 @@ export default function Metricas() {
       const [leads, msgsIn, msgsIa, escAbertas, escTotal, checkouts,
              vendasAnne, vendasDisparo, vendasExternas, fuEnviados, fuRespondidos, wonTotal, wonLista] =
         await Promise.all([
-          count('contacts', q => q.gte('created_at', desde)),
-          count('messages', q => q.eq('from_type', 'user').gte('created_at', desde)),
-          count('messages', q => q.eq('from_type', 'ia').gte('created_at', desde)),
+          count('contacts', q => per(q)),
+          count('messages', q => per(q.eq('from_type', 'user'))),
+          count('messages', q => per(q.eq('from_type', 'ia'))),
           count('escalations', q => q.eq('status', 'open')),
-          count('escalations', q => q.gte('created_at', desde)),
-          count('events_outbox', q => q.eq('event_type', 'checkout_enviado').gte('created_at', desde)),
-          count('sales', q => q.in('attribution', ANNE_ATTRS).gte('created_at', desde)),
-          count('sales', q => q.eq('attribution', 'anne_disparo').gte('created_at', desde)),
-          count('sales', q => q.eq('attribution', 'externa').neq('matched_by', 'unmatched').gte('created_at', desde)),
-          count('followup_log', q => q.gte('sent_at', desde)),
-          count('followup_log', q => q.eq('replied', true).gte('sent_at', desde)),
+          count('escalations', q => per(q)),
+          count('events_outbox', q => per(q.eq('event_type', 'checkout_enviado'))),
+          count('sales', q => per(q.in('attribution', ANNE_ATTRS))),
+          count('sales', q => per(q.eq('attribution', 'anne_disparo'))),
+          count('sales', q => per(q.eq('attribution', 'externa').neq('matched_by', 'unmatched'))),
+          count('followup_log', q => per(q, 'sent_at')),
+          count('followup_log', q => per(q.eq('replied', true), 'sent_at')),
           count('conversations', q => q.eq('status', 'won')),
           supabase.from('vw_matriculados_lista').select('venda,matricula_manual').limit(500)
             .then(({ data }) => (data as any[] | null)),
@@ -139,12 +184,14 @@ export default function Metricas() {
       setM({ leads, msgsIn, msgsIa, escAbertas, escTotal, checkouts,
              vendasAnne, vendasDisparo, vendasExternas, fuEnviados, fuRespondidos, wonTotal, wonAnne })
     })()
-  }, [dias])
+  }, [periodo])
 
   const abrirVendas = async () => {
-    const desde = new Date(Date.now() - dias * 86400000).toISOString()
-    const { data } = await supabase.from('vw_vendas_lista').select('*')
-      .gte('created_at', desde).order('paid_at', { ascending: false }).limit(300)
+    const { de, ate } = rangePeriodo(periodo)
+    let q = supabase.from('vw_vendas_lista').select('*')
+    if (de) q = q.gte('created_at', de)
+    if (ate) q = q.lt('created_at', ate)
+    const { data } = await q.order('paid_at', { ascending: false }).limit(300)
     const rows = ((data as any) ?? []) as Venda[]
     rows.sort((a, b) => (ANNE_ATTRS.includes(b.attribution) ? 1 : 0) - (ANNE_ATTRS.includes(a.attribution) ? 1 : 0))
     setVendas(rows); setLista('vendas')
@@ -162,15 +209,28 @@ export default function Metricas() {
 
   return (
     <div className="h-full overflow-y-auto p-4 md:p-6">
-      <div className="flex items-center justify-between mb-6 max-w-4xl">
+      <div className="flex items-center justify-between mb-6 max-w-4xl flex-wrap gap-2">
         <h1 className="font-display font-bold text-2xl">Métricas</h1>
-        <div className="flex gap-1 border border-line rounded-lg p-1">
-          {[1, 7, 30].map(d => (
-            <button key={d} onClick={() => setDias(d)}
-              className={`text-xs px-3 py-1 rounded-md transition ${dias === d ? 'bg-gold text-ink font-semibold' : 'text-dim hover:text-cream'}`}>
-              {d === 1 ? 'Hoje' : `${d} dias`}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex gap-1 border border-line rounded-lg p-1">
+            {([['hoje', 'Hoje'], ['d7', '7 dias'], ['d30', '30 dias'], ['tudo', 'Todo período'], ['custom', '🗓 Personalizado']] as const).map(([t, lbl]) => (
+              <button key={t} onClick={() => setPeriodo(p => ({ ...p, tipo: t }))}
+                className={`text-xs px-3 py-1 rounded-md transition ${periodo.tipo === t ? 'bg-gold text-ink font-semibold' : 'text-dim hover:text-cream'}`}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+          {periodo.tipo === 'custom' && (
+            <div className="flex items-center gap-1.5 border border-line rounded-lg px-2 py-1">
+              <input type="date" value={periodo.de} max={periodo.ate || undefined}
+                onChange={e => setPeriodo(p => ({ ...p, de: e.target.value }))}
+                className="bg-transparent text-xs text-cream outline-none [color-scheme:dark]" />
+              <span className="text-dim text-xs">→</span>
+              <input type="date" value={periodo.ate} min={periodo.de || undefined}
+                onChange={e => setPeriodo(p => ({ ...p, ate: e.target.value }))}
+                className="bg-transparent text-xs text-cream outline-none [color-scheme:dark]" />
+            </div>
+          )}
         </div>
       </div>
 
@@ -186,6 +246,100 @@ export default function Metricas() {
           sub={`${n(m.wonTotal)} conversas fechadas no total · clique p/ ver`} />
         <Card titulo="Follow-ups enviados" valor={n(m.fuEnviados)} sub={`recuperados ${pct(m.fuRespondidos, m.fuEnviados)}`} />
       </div>
+
+      {/* 🎯 Controle do funil por agente/etapa */}
+      {(() => {
+        const slugs = [...new Set(funil.map(r => r.agent_slug))]
+          .filter(s => s !== 'roteador')
+          .sort((a, b) => {
+            const won = (s: string) => funil.find(r => r.agent_slug === s && r.bucket === 'won')?.total ?? 0
+            return won(b) - won(a)
+          })
+        if (!slugs.length) return null
+        const cel = (s: string, b: string) => funil.find(r => r.agent_slug === s && r.bucket === b) ?? { total: 0, parados: 0 }
+        const soma = (b: string, campo: 'total' | 'parados' = 'total') =>
+          funil.filter(r => r.bucket === b && r.agent_slug !== 'roteador').reduce((acc, r) => acc + Number(r[campo]), 0)
+        const engajados = (s: string) => FUNIL_COLS.filter(c => c.k !== 'novo')
+          .reduce((acc, c) => acc + Number(cel(s, c.k).total), 0)
+        const convPct = (s: string) => {
+          const e = engajados(s)
+          return e ? Math.round((Number(cel(s, 'won').total) / e) * 100) : null
+        }
+        // Avisos automáticos: gargalos (🔴) e destaques (🟢)
+        const vazadas = ['fase1', 'fase2', 'fase3', 'fase4'].map(f => ({ f, n: soma(f, 'parados') }))
+        const gargalo = vazadas.sort((a, b) => b.n - a.n)[0]
+        const totVazadas = vazadas.reduce((a, v) => a + v.n, 0)
+        const ckPend = soma('checkout_pendente'); const ckPend48 = soma('checkout_pendente', 'parados')
+        const f4 = soma('fase4') + soma('checkout_pendente', 'parados') * 0 // fase4 ativos
+        const wonTot = soma('won')
+        const convF4 = (f4 + wonTot) ? Math.round((wonTot / (f4 + wonTot)) * 100) : null
+        const melhor = slugs.filter(s => engajados(s) >= 10)
+          .map(s => ({ s, p: convPct(s) ?? 0 })).sort((a, b) => b.p - a.p)[0]
+        const dormentes = soma('resgate')
+        return (
+          <div className="max-w-5xl mt-8">
+            <h2 className="font-display font-semibold text-lg mb-3">🎯 Controle do funil por agente <span className="text-dim text-xs font-normal">· coorte por chegada do lead · {labelPeriodo(periodo)}</span></h2>
+            <div className="border border-line rounded-xl overflow-x-auto bg-panel/50">
+              <table className="w-full text-sm whitespace-nowrap">
+                <thead>
+                  <tr className="text-[10px] font-mono text-dim uppercase tracking-widest border-b border-line">
+                    <th className="text-left px-4 py-2.5">Agente</th>
+                    {FUNIL_COLS.map(c => <th key={c.k} className="text-right px-3 py-2.5">{c.label}</th>)}
+                    <th className="text-right px-3 py-2.5">🔗 Link pend.</th>
+                    <th className="text-right px-4 py-2.5">Conv.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {slugs.map(s => (
+                    <tr key={s} className="border-b border-line/50 last:border-0">
+                      <td className="px-4 py-2.5 font-medium">{AGENT_LABEL[s] ?? s}</td>
+                      {FUNIL_COLS.map(c => {
+                        const { total, parados } = cel(s, c.k)
+                        return (
+                          <td key={c.k} className={`px-3 py-2.5 text-right ${c.k === 'won' ? 'text-win font-bold' : ''}`}>
+                            {Number(total) || <span className="text-dim/40">·</span>}
+                            {Number(parados) > 0 && <span className="text-danger text-[10px] font-mono ml-1" title="parados +24h sem follow-up">⚠{parados}</span>}
+                          </td>
+                        )
+                      })}
+                      {(() => { const ck = cel(s, 'checkout_pendente'); return (
+                        <td className="px-3 py-2.5 text-right text-gold">
+                          {Number(ck.total) || <span className="text-dim/40">·</span>}
+                          {Number(ck.parados) > 0 && <span className="text-danger text-[10px] font-mono ml-1" title="+48h sem pagar">⚠{ck.parados}</span>}
+                        </td>
+                      )})()}
+                      <td className="px-4 py-2.5 text-right font-semibold">{convPct(s) != null ? `${convPct(s)}%` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-3 space-y-1.5">
+              {totVazadas > 0 && (
+                <div className="text-[12px] text-danger">🔴 <b>{totVazadas} conversas ativas paradas há +24h SEM follow-up agendado</b> — vazaram da régua{gargalo.n > 0 && <> · maior concentração: <b>{gargalo.f.replace('fase', 'Fase ')}</b> ({gargalo.n})</>}. São leads quentes esperando alguém puxar.</div>
+              )}
+              {ckPend > 0 && (
+                <div className="text-[12px] text-gold">🟠 <b>{ckPend} leads receberam o link e ainda não pagaram</b>{ckPend48 > 0 && <> ({ckPend48} há +48h — repasse pro Comercial Humano)</>}.</div>
+              )}
+              {convF4 != null && (
+                <div className="text-[12px] text-teal">{convF4 >= 30 ? '🟢' : '🟡'} Dos leads que chegam à <b>Fase 4 (oferta)</b>, <b>{convF4}%</b> viram matrícula.</div>
+              )}
+              {melhor && melhor.p > 0 && (
+                <div className="text-[12px] text-win">🟢 Melhor conversão: <b>{AGENT_LABEL[melhor.s] ?? melhor.s}</b> ({melhor.p}% dos engajados matriculam).</div>
+              )}
+              {dormentes > 50 && (
+                <div className="text-[12px] text-dim">😴 <b>{dormentes} conversas dormentes</b> (cadência esgotada, lead já respondeu antes) — matéria-prima para campanha de reativação.</div>
+              )}
+              <div className="text-[11px] text-dim/60 leading-relaxed mt-1">
+                <b className="text-dim">Novo</b> = nunca respondeu · <b className="text-dim">Fases 1-4</b> = conversando com a IA (⚠ = parado +24h sem régua) ·
+                <b className="text-dim"> Régua</b> = follow-up agendado · <b className="text-dim">Dormant</b> = cadência esgotada ·
+                <b className="text-dim"> Link pend.</b> = recebeu checkout e não pagou (sobrepõe as outras colunas) ·
+                <b className="text-dim"> Conv.</b> = matriculados ÷ engajados (exclui quem nunca respondeu).
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Desempenho por agente (vw_vendas_agentes) */}
       <div className="max-w-4xl mt-8">
@@ -237,9 +391,10 @@ export default function Metricas() {
 
       {/* 🛡 Checkout Blindado — funil da régua */}
       {blin && (() => {
-        const desde = Date.now() - dias * 86400000
-        const cap = blin.capturados.filter(c => new Date(c.created_at).getTime() >= desde)
-        const disp = blin.disparos.filter(d => new Date(d.sent_at).getTime() >= desde)
+        const { de, ate } = rangePeriodo(periodo)
+        const dentro = (ts: string) => (!de || ts >= de) && (!ate || ts < ate)
+        const cap = blin.capturados.filter(c => dentro(c.created_at))
+        const disp = blin.disparos.filter(d => dentro(d.sent_at))
         const conv = disp.filter(d => d.status === 'convertido')
         const convValor = conv.reduce((s, d) => s + (Number(d.valor) || 0), 0)
         const pausada = blin.campanhas.length > 0 && blin.campanhas.every(c => !c.ativa)
@@ -329,7 +484,7 @@ export default function Metricas() {
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center mb-4">
               <h2 className="font-display font-semibold text-lg">
-                {lista === 'vendas' ? `Vendas no período (${dias === 1 ? 'hoje' : dias + ' dias'})` : 'Matriculados'}
+                {lista === 'vendas' ? `Vendas no período (${labelPeriodo(periodo)})` : 'Matriculados'}
               </h2>
               <button onClick={() => setLista(null)} className="ml-auto text-dim hover:text-cream text-xl leading-none">✕</button>
             </div>
