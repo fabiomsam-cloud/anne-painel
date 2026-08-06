@@ -1,32 +1,13 @@
 import { useEffect, useState } from 'react'
-import { supabase, AGENT_LABEL, STATUS_META, fmtHora, fmtFone } from '../lib/supabase'
+import { supabase, AGENT_LABEL, STATUS_META, PIPELINE_COLS, pipelineCol, fmtHora, fmtFone } from '../lib/supabase'
 
 type Conv = {
   id: string; status: string; current_agent_slug: string; last_message_at: string | null; created_at: string
   contacts: { id: string; name: string | null; phone: string; tags: string[]; client_memory: any }
 }
 
-const COLS = [
-  { id: 'novo', label: 'Novos', hint: 'sem checkout, em triagem/conversa', cor: 'border-t-teal' },
-  { id: 'negociando', label: 'Negociando', hint: 'qualificado pela IA', cor: 'border-t-gold' },
-  { id: 'checkout', label: 'Checkout enviado', hint: 'link de matrícula na mão', cor: 'border-t-gold' },
-  { id: 'humano', label: 'Com humano', hint: 'escalados', cor: 'border-t-danger' },
-  { id: 'matriculado', label: 'Matriculados 🏆', hint: 'venda confirmada', cor: 'border-t-win' },
-  { id: 'dormente', label: 'Dormentes', hint: 'cadência esgotada / opt-out', cor: 'border-t-line' },
-]
-
-// coluna manual (arrastada pelo humano) vence a derivação automática
-function coluna(c: Conv): string {
-  const override = c.contacts?.client_memory?.kanban_override
-  if (override && COLS.some(col => col.id === override)) return override
-  if (c.status === 'won') return 'matriculado'
-  if (c.status === 'human') return 'humano'
-  if (c.status === 'dormant' || c.status === 'opted_out') return 'dormente'
-  if ((c.contacts?.tags ?? []).includes('checkout_enviado')) return 'checkout'
-  const stage = c.contacts?.client_memory?.lead_stage
-  if (stage === 'negociando' || stage === 'quase_fechando' || stage === 'qualificado') return 'negociando'
-  return 'novo'
-}
+const COLS = PIPELINE_COLS
+const coluna = pipelineCol
 
 const FASES = ['1 · Situação', '2 · Problema', '3 · Valor', '4 · Oferta']
 

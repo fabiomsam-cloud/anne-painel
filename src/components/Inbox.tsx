@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { supabase, AGENT_LABEL, STATUS_META, fmtHora, fmtFone } from '../lib/supabase'
+import { supabase, AGENT_LABEL, STATUS_META, PIPELINE_COLS, pipelineCol, fmtHora, fmtFone } from '../lib/supabase'
 
 type Conv = {
   id: string; status: string; current_agent_slug: string; last_message_at: string | null
-  last_user_message_at: string | null
+  last_user_message_at: string | null; read_at: string | null
   contexto: any
   contacts: { id: string; name: string | null; phone: string; tags: string[]; client_memory: any; opted_out: boolean }
 }
@@ -26,6 +26,40 @@ function janela(c: Conv | null, agora: number) {
   return { aberta: true, label: `${h}h ${String(m).padStart(2, '0')}min` }
 }
 
+// chip de etapa do pipeline na lista — humano/matriculado/dormente ficam de fora
+// porque o chip de status já mostra exatamente isso
+const ETAPA_CHIP: Record<string, { label: string; cls: string }> = {
+  novo: { label: 'Novo', cls: 'border-line text-dim' },
+  negociando: { label: 'Negociando', cls: 'border-gold/40 text-gold bg-gold/5' },
+  checkout: { label: '🛒 Checkout enviado', cls: 'border-gold/50 text-gold bg-gold/15' },
+}
+
+// não lida = o lead mandou mensagem depois da última vez que alguém abriu a conversa
+function naoLida(c: Conv) {
+  if (!c.last_user_message_at) return false
+  if (!c.read_at) return true
+  return new Date(c.last_user_message_at).getTime() > new Date(c.read_at).getTime()
+}
+
+// última mensagem é de saída (você/IA respondeu por último)
+function ultimaEhSaida(c: Conv) {
+  if (!c.last_message_at || !c.last_user_message_at) return false
+  return new Date(c.last_message_at).getTime() > new Date(c.last_user_message_at).getTime()
+}
+
+// conversa operada por gente: atendimento comum ou posse do Comercial Humano
+function comHumano(status: string) {
+  return status === 'human' || status === 'humano_comercial'
+}
+
+// quem precisa de atenção fica no topo, aberta ou fechada a janela:
+// 0 = não lida · 1 = com humano aguardando sua resposta · 2 = resto
+function prioridade(c: Conv) {
+  if (naoLida(c)) return 0
+  if (comHumano(c.status) && c.last_user_message_at && !ultimaEhSaida(c)) return 1
+  return 2
+}
+
 const FROM_STYLE: Record<string, string> = {
   user: 'self-start bg-panel2 border-line',
   ia: 'self-end bg-teal/10 border-teal/25',
@@ -40,6 +74,8 @@ export default function Inbox({ convInicial, aoConsumir }: { convInicial?: strin
   const [filtroAgente, setFiltroAgente] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
   const [filtroJanela, setFiltroJanela] = useState<'' | 'aberta' | 'fechada'>('')
+  const [filtroEtapa, setFiltroEtapa] = useState('')
+  const [soNaoLidas, setSoNaoLidas] = useState(false)
   const [busca, setBusca] = useState('')
   const [texto, setTexto] = useState('')
   const [enviando, setEnviando] = useState(false)
@@ -59,7 +95,7 @@ export default function Inbox({ convInicial, aoConsumir }: { convInicial?: strin
   buscaRef.current = busca
 
   const carregarConvs = async () => {
-    const SEL = 'id,status,current_agent_slug,last_message_at,last_user_message_at,contexto,contacts(id,name,phone,tags,client_memory,opted_out)'
+    const SEL = 'id,status,current_agent_slug,last_message_at,last_user_message_at,read_at,contexto,contacts(id,name,phone,tags,client_memory,opted_out)'
     const q = buscaRef.current.trim()
     if (q) {
       // busca no BANCO (nome/telefone), não só nas 200 carregadas
@@ -75,11 +111,11 @@ export default function Inbox({ convInicial, aoConsumir }: { convInicial?: strin
       setConvs((data as any) ?? [])
       return
     }
-    // sem busca: 200 recentes + TODAS as human/won (não podem sumir num dia de disparo)
+    // sem busca: 200 recentes + TODAS as human/comercial/won (não podem sumir num dia de disparo)
     const [rec, fixas] = await Promise.all([
       supabase.from('conversations').select(SEL)
         .order('last_message_at', { ascending: false, nullsFirst: false }).limit(200),
-      supabase.from('conversations').select(SEL).in('status', ['human', 'won'])
+      supabase.from('conversations').select(SEL).in('status', ['human', 'humano_comercial', 'won'])
         .order('last_message_at', { ascending: false, nullsFirst: false }).limit(200),
     ])
     const vistos = new Set<string>()
@@ -93,9 +129,9 @@ export default function Inbox({ convInicial, aoConsumir }: { convInicial?: strin
   useEffect(() => {
     if (!convInicial) return
     supabase.from('conversations')
-      .select('id,status,current_agent_slug,last_message_at,last_user_message_at,contexto,contacts(id,name,phone,tags,client_memory,opted_out)')
+      .select('id,status,current_agent_slug,last_message_at,last_user_message_at,read_at,contexto,contacts(id,name,phone,tags,client_memory,opted_out)')
       .eq('id', convInicial).single()
-      .then(({ data }) => { if (data) setSel(data as any) })
+      .then(({ data }) => { if (data) { setSel(data as any); marcarLida(data as any) } })
     aoConsumir?.()
   }, [convInicial])
 
@@ -138,7 +174,11 @@ export default function Inbox({ convInicial, aoConsumir }: { convInicial?: strin
     const ch = supabase.channel(`thread-${sel.id}`)
       .on('postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${sel.id}` },
-        payload => setMsgs(m => [...m, payload.new as Msg]))
+        payload => {
+          setMsgs(m => [...m, payload.new as Msg])
+          // conversa está aberta na tela: mensagem nova do lead já nasce lida
+          if ((payload.new as Msg).from_type === 'user') marcarLida(sel)
+        })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [sel?.id])
@@ -152,6 +192,13 @@ export default function Inbox({ convInicial, aoConsumir }: { convInicial?: strin
     if (fresh && (fresh.last_user_message_at !== sel.last_user_message_at || fresh.status !== sel.status))
       setSel(fresh)
   }, [convs])
+
+  // abrir a conversa apaga o aviso de "não lida" para a equipe toda (realtime)
+  const marcarLida = async (c: Conv) => {
+    const ts = new Date().toISOString()
+    setConvs(cs => cs.map(x => (x.id === c.id ? { ...x, read_at: ts } : x)))
+    await supabase.from('conversations').update({ read_at: ts }).eq('id', c.id)
+  }
 
   const assumir = async () => {
     if (!sel) return
@@ -268,9 +315,16 @@ export default function Inbox({ convInicial, aoConsumir }: { convInicial?: strin
   const lista = convs.filter(c => {
     if (filtroAgente && c.current_agent_slug !== filtroAgente) return false
     if (filtroStatus && c.status !== filtroStatus) return false
+    if (filtroEtapa && pipelineCol(c) !== filtroEtapa) return false
     if (filtroJanela && (janela(c, agora).aberta ? 'aberta' : 'fechada') !== filtroJanela) return false
+    if (soNaoLidas && !naoLida(c)) return false
     return true
+  }).sort((a, b) => {
+    const pa = prioridade(a), pb = prioridade(b)
+    if (pa !== pb) return pa - pb
+    return String(b.last_message_at ?? '').localeCompare(String(a.last_message_at ?? ''))
   })
+  const totalNaoLidas = convs.filter(naoLida).length
 
   const mem = sel?.contacts?.client_memory ?? {}
   const jan = janela(sel, agora)
@@ -295,6 +349,11 @@ export default function Inbox({ convInicial, aoConsumir }: { convInicial?: strin
               {Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
           </div>
+          <select value={filtroEtapa} onChange={e => setFiltroEtapa(e.target.value)}
+            className="w-full bg-panel border border-line rounded-lg px-2 py-1.5 text-xs text-dim focus:outline-none">
+            <option value="">Todas etapas do pipeline</option>
+            {PIPELINE_COLS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
           <div className="flex gap-1.5 items-center">
             <span className="text-[10px] font-mono text-dim uppercase tracking-widest mr-1">Janela 24h</span>
             {([['', 'Todas'], ['aberta', '🟢 Aberta'], ['fechada', '🔴 Fechada']] as const).map(([v, lbl]) => (
@@ -304,29 +363,54 @@ export default function Inbox({ convInicial, aoConsumir }: { convInicial?: strin
                 {lbl}
               </button>
             ))}
+            <button onClick={() => setSoNaoLidas(v => !v)}
+              className={`ml-auto text-[11px] px-2.5 py-1 rounded-lg border transition
+                ${soNaoLidas ? 'border-teal/60 bg-teal/10 text-teal' : 'border-line text-dim hover:text-cream'}`}
+              title="Só conversas com resposta do lead que ninguém abriu ainda">
+              🔔{totalNaoLidas > 0 ? ` ${totalNaoLidas}` : ''}
+            </button>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {lista.map(c => (
-            <button key={c.id} onClick={() => setSel(c)}
+          {lista.map(c => {
+            const etapa = ETAPA_CHIP[pipelineCol(c)]
+            const unread = naoLida(c)
+            // conversa com humano: a última mensagem é de saída = você já respondeu
+            const vcRespondeu = comHumano(c.status) && ultimaEhSaida(c)
+            return (
+            <button key={c.id} onClick={() => { setSel(c); marcarLida(c) }}
               className={`w-full text-left px-4 py-3 border-b border-line/50 hover:bg-panel2/50 transition-colors
-                ${sel?.id === c.id ? 'bg-panel2' : ''}`}>
+                ${sel?.id === c.id ? 'bg-panel2' : unread ? 'bg-teal/5' : ''}`}>
               <div className="flex items-center justify-between gap-2">
-                <span className="font-medium text-sm truncate">{c.contacts?.name || fmtFone(c.contacts?.phone)}</span>
+                <span className={`text-sm truncate ${unread ? 'font-semibold text-cream' : 'font-medium'}`}>
+                  {unread && <span className="text-teal mr-1.5">●</span>}
+                  {c.contacts?.name || fmtFone(c.contacts?.phone)}
+                </span>
                 <span className="font-mono text-[10px] text-dim shrink-0">{fmtHora(c.last_message_at)}</span>
               </div>
-              <div className="flex items-center gap-1.5 mt-1.5">
+              <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                 <span className={`text-[10px] px-1.5 py-0.5 rounded border ${STATUS_META[c.status]?.cls ?? ''}`}>
                   {STATUS_META[c.status]?.label ?? c.status}
                 </span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded border border-line text-dim">
                   {AGENT_LABEL[c.current_agent_slug] ?? c.current_agent_slug}
                 </span>
+                {etapa && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded border ${etapa.cls}`}>{etapa.label}</span>
+                )}
+                {unread ? (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded border border-teal/50 text-teal bg-teal/10">💬 lead respondeu</span>
+                ) : comHumano(c.status) && c.last_user_message_at ? (
+                  vcRespondeu
+                    ? <span className="text-[10px] px-1.5 py-0.5 rounded border border-win/40 text-win bg-win/5">✓ você respondeu</span>
+                    : <span className="text-[10px] px-1.5 py-0.5 rounded border border-gold/50 text-gold bg-gold/10">✋ falta responder</span>
+                ) : null}
                 <span title={janela(c, agora).aberta ? `Janela aberta · resta ${janela(c, agora).label}` : 'Janela de 24h fechada'}
                   className="text-[10px] ml-auto">{janela(c, agora).aberta ? '🟢' : '🔴'}</span>
               </div>
             </button>
-          ))}
+            )
+          })}
           {lista.length === 0 && <div className="p-6 text-center text-dim text-sm">Nenhuma conversa.</div>}
         </div>
       </div>
@@ -356,7 +440,12 @@ export default function Inbox({ convInicial, aoConsumir }: { convInicial?: strin
               <div className="ml-auto flex items-center gap-2">
                 <button onClick={() => setInfoAberto(true)} title="Dados do lead"
                   className="xl:hidden text-xs text-dim border border-line rounded-lg px-2.5 py-1.5 hover:text-cream transition">ℹ️</button>
-                {sel.status === 'human' ? (
+                {sel.status === 'humano_comercial' ? (
+                  <span className="text-[11px] font-mono px-2.5 py-1.5 rounded-lg border border-gold/50 text-gold bg-gold/10"
+                    title="Lead de posse de um vendedor do Comercial Humano — devolução e registro de ligações na aba ☎️ Comercial">
+                    ☎️ Comercial Humano
+                  </span>
+                ) : sel.status === 'human' ? (
                   <button onClick={devolverIA}
                     className="text-xs font-semibold bg-teal/15 text-teal border border-teal/40 rounded-lg px-3 py-1.5 hover:bg-teal/25 transition">
                     ↩ Devolver para a IA
@@ -403,10 +492,10 @@ export default function Inbox({ convInicial, aoConsumir }: { convInicial?: strin
             {jan.aberta ? (
               <form onSubmit={enviar} className="p-4 border-t border-line flex gap-2">
                 <input value={texto} onChange={e => setTexto(e.target.value)}
-                  placeholder={sel.status === 'human' ? 'Responder como humano…' : 'Assuma a conversa para responder (IA está atendendo)'}
-                  disabled={sel.status !== 'human'}
+                  placeholder={comHumano(sel.status) ? 'Responder como humano…' : 'Assuma a conversa para responder (IA está atendendo)'}
+                  disabled={!comHumano(sel.status)}
                   className="flex-1 bg-panel border border-line rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-gold/60 disabled:opacity-40 placeholder:text-dim/50" />
-                <button disabled={sel.status !== 'human' || !texto.trim() || enviando}
+                <button disabled={!comHumano(sel.status) || !texto.trim() || enviando}
                   className="bg-gold text-ink font-semibold rounded-xl px-5 text-sm disabled:opacity-30 hover:brightness-110 transition">
                   Enviar
                 </button>
@@ -414,7 +503,7 @@ export default function Inbox({ convInicial, aoConsumir }: { convInicial?: strin
             ) : (
               <div className="p-4 border-t border-line space-y-2">
                 {msgTpl && <div className="rise text-xs rounded-lg border border-line bg-panel px-3 py-2">{msgTpl}</div>}
-                {sel.status !== 'human' ? (
+                {!comHumano(sel.status) ? (
                   <div className="text-xs text-dim text-center py-1">
                     🔒 Janela de 24h fechada — <b className="text-cream">assuma a conversa</b> para reabrir com um template aprovado.
                   </div>

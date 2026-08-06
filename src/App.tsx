@@ -10,11 +10,13 @@ import Agentes from './components/Agentes'
 import Disparos from './components/Disparos'
 import Config from './components/Config'
 import Equipe from './components/Equipe'
+import Comercial from './components/Comercial'
 
 const TABS = [
   { id: 'inbox', label: 'Inbox', icon: '💬' },
   { id: 'escalacoes', label: 'Escalações', icon: '🚨' },
   { id: 'kanban', label: 'Pipeline', icon: '📋' },
+  { id: 'comercial', label: 'Comercial', icon: '☎️' },
   { id: 'agentes', label: 'Agentes', icon: '🤖' },
   { id: 'disparos', label: 'Disparos', icon: '📣' },
   { id: 'metricas', label: 'Métricas', icon: '📈' },
@@ -119,6 +121,7 @@ export default function App() {
         {tab === 'inbox' && <Inbox convInicial={convParaAbrir} aoConsumir={() => setConvParaAbrir(null)} />}
         {tab === 'escalacoes' && <Escalacoes irParaInbox={(convId?: string) => { setConvParaAbrir(convId ?? null); setTab('inbox') }} />}
         {tab === 'kanban' && <Kanban />}
+        {tab === 'comercial' && <Comercial irParaInbox={(convId: string) => { setConvParaAbrir(convId); setTab('inbox') }} />}
         {tab === 'agentes' && <Agentes />}
         {tab === 'disparos' && <Disparos />}
         {tab === 'equipe' && <Equipe />}

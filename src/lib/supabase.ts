@@ -27,10 +27,34 @@ export async function carregarAgentLabels() {
 export const STATUS_META: Record<string, { label: string; cls: string }> = {
   ia: { label: 'IA atendendo', cls: 'text-teal border-teal/40 bg-teal/10' },
   human: { label: 'Com humano', cls: 'text-gold border-gold/40 bg-gold/10' },
+  humano_comercial: { label: '☎️ Comercial Humano', cls: 'text-gold border-gold/50 bg-gold/15' },
   paused: { label: 'Pausada', cls: 'text-dim border-line bg-panel2' },
   won: { label: 'Matriculado 🏆', cls: 'text-win border-win/40 bg-win/10' },
   dormant: { label: 'Dormente', cls: 'text-dim border-line bg-panel2' },
   opted_out: { label: 'Opt-out', cls: 'text-danger border-danger/40 bg-danger/10' },
+}
+
+// etapas do Pipeline (Kanban) — mesma derivação usada no filtro do Inbox
+export const PIPELINE_COLS = [
+  { id: 'novo', label: 'Novos', hint: 'sem checkout, em triagem/conversa', cor: 'border-t-teal' },
+  { id: 'negociando', label: 'Negociando', hint: 'qualificado pela IA', cor: 'border-t-gold' },
+  { id: 'checkout', label: 'Checkout enviado', hint: 'link de matrícula na mão', cor: 'border-t-gold' },
+  { id: 'humano', label: 'Com humano', hint: 'escalados', cor: 'border-t-danger' },
+  { id: 'matriculado', label: 'Matriculados 🏆', hint: 'venda confirmada', cor: 'border-t-win' },
+  { id: 'dormente', label: 'Dormentes', hint: 'cadência esgotada / opt-out', cor: 'border-t-line' },
+]
+
+// coluna manual (arrastada pelo humano) vence a derivação automática
+export function pipelineCol(c: { status: string; contacts?: { tags?: string[] | null; client_memory?: any } | null }): string {
+  const override = c.contacts?.client_memory?.kanban_override
+  if (override && PIPELINE_COLS.some(col => col.id === override)) return override
+  if (c.status === 'won') return 'matriculado'
+  if (c.status === 'human' || c.status === 'humano_comercial') return 'humano'
+  if (c.status === 'dormant' || c.status === 'opted_out') return 'dormente'
+  if ((c.contacts?.tags ?? []).includes('checkout_enviado')) return 'checkout'
+  const stage = c.contacts?.client_memory?.lead_stage
+  if (stage === 'negociando' || stage === 'quase_fechando' || stage === 'qualificado') return 'negociando'
+  return 'novo'
 }
 
 export function fmtHora(ts?: string | null) {
