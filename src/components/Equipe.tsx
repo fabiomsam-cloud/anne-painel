@@ -8,6 +8,7 @@ const PRINCIPAL = 'fabioms.am@gmail.com'
 
 export default function Equipe() {
   const [admins, setAdmins] = useState<string[]>([])
+  const [semPapel, setSemPapel] = useState<string[]>([])
   const [meuEmail, setMeuEmail] = useState('')
   const [novo, setNovo] = useState('')
   const [salvando, setSalvando] = useState(false)
@@ -21,9 +22,20 @@ export default function Equipe() {
 
   const carregar = async () => {
     const { data } = await supabase.from('global_settings').select('value').eq('key', 'admin_emails').single()
-    setAdmins(((data?.value as string[]) ?? []))
+    const adm = ((data?.value as string[]) ?? [])
+    setAdmins(adm)
     const { data: u } = await supabase.auth.getUser()
     setMeuEmail((u.user?.email ?? '').toLowerCase())
+    // acessos do modelo ANTIGO (operator_emails, pré-papéis) ainda sem classificação:
+    // essas pessoas perderam o acesso na migração e precisam virar admin ou vendedor
+    const [{ data: ops }, { data: vs }] = await Promise.all([
+      supabase.from('global_settings').select('value').eq('key', 'operator_emails').maybeSingle(),
+      supabase.from('vendedores').select('email'),
+    ])
+    const vendEmails = new Set((((vs as any) ?? []) as { email: string }[]).map(v => v.email.toLowerCase()))
+    setSemPapel((((ops?.value as string[]) ?? []))
+      .map(e => e.toLowerCase())
+      .filter(e => !adm.includes(e) && !vendEmails.has(e)))
   }
   useEffect(() => { carregar() }, [])
 
@@ -166,6 +178,21 @@ export default function Equipe() {
           {admins.length === 0 && <div className="text-center py-6 text-dim text-sm">Carregando…</div>}
         </div>
       </div>
+
+      {semPapel.length > 0 && (
+        <div className="border border-danger/30 bg-danger/5 rounded-xl p-4">
+          <div className="text-xs text-danger font-mono uppercase tracking-widest mb-1">⚠️ Acessos antigos sem papel</div>
+          <p className="text-sm text-dim mb-2">
+            Estes e-mails tinham acesso no modelo antigo e ficaram <b className="text-cream">sem acesso</b> na
+            migração para papéis. Classifique cada um: vendedor (☎️ Comercial → Gestão) ou administrador (acima).
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {semPapel.map(e => (
+              <span key={e} className="text-[11px] font-mono px-2 py-1 rounded-lg border border-danger/30 text-danger/90">{e}</span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="border border-gold/25 bg-gold/5 rounded-xl p-4">
         <div className="text-xs text-gold font-mono uppercase tracking-widest mb-1">☎️ Vendedores</div>

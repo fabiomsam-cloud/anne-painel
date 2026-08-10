@@ -614,14 +614,22 @@ function Gestao({ vendedores, recarregarVendedores, flash }:
   }
   useEffect(() => { carregarMes() }, [mes])
 
+  const [salvandoV, setSalvandoV] = useState(false)
   const addVendedor = async () => {
+    if (salvandoV) return
     if (!novoV.nome.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(novoV.email.trim())) return flash('Nome e e-mail válido são obrigatórios.')
     const email = novoV.email.trim().toLowerCase()
+    setSalvandoV(true)
     const { error } = await supabase.from('vendedores').insert({
       nome: novoV.nome.trim(), email,
       telefone: novoV.telefone.trim() || null, tipo: novoV.tipo,
     })
-    if (error) return flash('Erro: ' + error.message)
+    if (error) {
+      setSalvandoV(false)
+      return flash(/duplicate|23505/.test(error.message + (error as any).code)
+        ? `⚠️ ${email} já está cadastrado como vendedor — veja a lista abaixo.`
+        : 'Erro: ' + error.message)
+    }
     // acesso do vendedor = estar nesta tabela (migration 18); manda o link de entrada já
     const { error: errLink } = await supabase.auth.signInWithOtp({
       email, options: { emailRedirectTo: 'https://fabiomsam-cloud.github.io/anne-painel/', shouldCreateUser: true },
@@ -630,6 +638,7 @@ function Gestao({ vendedores, recarregarVendedores, flash }:
       ? `✅ ${novoV.nome} cadastrado como vendedor, mas o e-mail de acesso falhou (${errLink.message}) — a pessoa pode pedir o link mágico na tela de login.`
       : `✅ ${novoV.nome} cadastrado — link de acesso enviado por e-mail. Ele verá só Inbox, Escalações e Comercial.`)
     setNovoV({ nome: '', email: '', telefone: '', tipo: 'closer' })
+    setSalvandoV(false)
     recarregarVendedores()
   }
 
@@ -748,7 +757,10 @@ function Gestao({ vendedores, recarregarVendedores, flash }:
             <option value="closer">Closer (recebe leads da roleta)</option>
             <option value="escalacao">Escalação (devolve p/ IA)</option>
           </select>
-          <button onClick={addVendedor} className="bg-gold text-ink font-semibold rounded-lg px-4 text-sm hover:brightness-110 transition">＋ Cadastrar</button>
+          <button onClick={addVendedor} disabled={salvandoV}
+            className="bg-gold text-ink font-semibold rounded-lg px-4 text-sm disabled:opacity-40 hover:brightness-110 transition">
+            {salvandoV ? '…' : '＋ Cadastrar'}
+          </button>
         </div>
         <div className="space-y-1.5">
           {vendedores.map(v => (
