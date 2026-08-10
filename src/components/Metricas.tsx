@@ -65,7 +65,7 @@ const FUNIL_COLS = [
 const BLINDADO_URL = 'https://workflows.manager03.scvpgti.com.br/webhook/anne/blindado/metricas'
 type BlinData = {
   capturados: { created_at: string; product_code: string | null; tem_fone: boolean }[]
-  disparos: { sent_at: string; status: string; product_code: string | null; valor: number | null }[]
+  disparos: { sent_at: string; status: string; product_code: string | null; valor: number | null; phone_norm?: string | null }[]
   campanhas: { nome: string; agent_slug: string; ativa: boolean; delay_min: number; product_codes: string[] }[]
 }
 const PROD_LABEL: Record<string, string> = {
@@ -399,7 +399,15 @@ export default function Metricas() {
         const dentro = (ts: string) => (!de || ts >= de) && (!ate || ts < ate)
         const cap = blin.capturados.filter(c => dentro(c.created_at))
         const disp = blin.disparos.filter(d => dentro(d.sent_at))
-        const conv = disp.filter(d => d.status === 'convertido')
+        // convertidos por LEAD ÚNICO: o 2º toque da régua gera 2ª linha convertida
+        // do mesmo lead/fatura — contar linhas dobraria conversões e valor (10/08)
+        const porLead = new Map<string, (typeof disp)[number]>()
+        for (const d of disp.filter(x => x.status === 'convertido')) {
+          const k = d.phone_norm || d.sent_at
+          const atual = porLead.get(k)
+          if (!atual || (Number(d.valor) || 0) > (Number(atual.valor) || 0)) porLead.set(k, d)
+        }
+        const conv = [...porLead.values()]
         const convValor = conv.reduce((s, d) => s + (Number(d.valor) || 0), 0)
         const pausada = blin.campanhas.length > 0 && blin.campanhas.every(c => !c.ativa)
         const porProduto = Object.values(cap.reduce((m: Record<string, any>, c) => {
@@ -411,9 +419,12 @@ export default function Metricas() {
         for (const d of disp) {
           const k = d.product_code || '(sem produto)'
           const row: any = (porProduto as any[]).find(p => p.code === k)
-          if (!row) continue
-          row.atk++
-          if (d.status === 'convertido') { row.conv++; row.valor += Number(d.valor) || 0 }
+          if (row) row.atk++
+        }
+        for (const d of conv) {
+          const k = d.product_code || '(sem produto)'
+          const row: any = (porProduto as any[]).find(p => p.code === k)
+          if (row) { row.conv++; row.valor += Number(d.valor) || 0 }
         }
         return (
           <div className="max-w-4xl mt-8">
