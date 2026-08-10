@@ -24,6 +24,16 @@ export async function carregarAgentLabels() {
   }
 }
 
+// papel de acesso do painel (migration 18): admin = admin_emails em global_settings
+// (só o principal fabioms.am@gmail.com edita a lista — policy no banco);
+// vendedor = e-mail ativo em `vendedores`; none = RLS bloqueia tudo.
+export type PapelPainel = { role: 'admin' | 'vendedor' | 'none'; vendedor_id?: string; tipo?: string }
+export async function papelDoPainel(): Promise<PapelPainel> {
+  const { data, error } = await supabase.rpc('fn_painel_role')
+  if (error || !data?.role) return { role: 'none' }
+  return data as PapelPainel
+}
+
 export const STATUS_META: Record<string, { label: string; cls: string }> = {
   ia: { label: 'IA atendendo', cls: 'text-teal border-teal/40 bg-teal/10' },
   human: { label: 'Com humano', cls: 'text-gold border-gold/40 bg-gold/10' },

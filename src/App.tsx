@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { supabase, carregarAgentLabels } from './lib/supabase'
+import { supabase, carregarAgentLabels, papelDoPainel, type PapelPainel } from './lib/supabase'
 import Login from './components/Login'
 import Inbox from './components/Inbox'
 import Escalacoes from './components/Escalacoes'
@@ -24,8 +24,12 @@ const TABS = [
   { id: 'config', label: 'Configuração', icon: '⚙️' },
 ] as const
 
+// vendedor (closer ou escalação) só enxerga a operação; o resto é de administrador
+const TABS_VENDEDOR = ['inbox', 'escalacoes', 'comercial']
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
+  const [papel, setPapel] = useState<PapelPainel | null>(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<string>('inbox')
   const [escAbertas, setEscAbertas] = useState(0)
@@ -33,12 +37,13 @@ export default function App() {
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
-      if (data.session) await carregarAgentLabels()
+      if (data.session) { await carregarAgentLabels(); setPapel(await papelDoPainel()) }
       setSession(data.session)
       setLoading(false)
     })
     const { data: sub } = supabase.auth.onAuthStateChange(async (_e, s) => {
-      if (s) await carregarAgentLabels()
+      if (s) { await carregarAgentLabels(); setPapel(await papelDoPainel()) }
+      else setPapel(null)
       setSession(s)
     })
     return () => sub.subscription.unsubscribe()
@@ -60,6 +65,27 @@ export default function App() {
 
   if (loading) return <div className="h-full grid place-items-center text-dim font-mono text-sm">carregando…</div>
   if (!session) return <Login />
+  if (!papel) return <div className="h-full grid place-items-center text-dim font-mono text-sm">verificando acesso…</div>
+
+  // autenticou mas não é admin nem vendedor cadastrado: RLS já bloqueia os dados;
+  // aqui só explicamos em vez de mostrar um painel vazio
+  if (papel.role === 'none') return (
+    <div className="h-full grid place-items-center p-6">
+      <div className="text-center max-w-sm space-y-3">
+        <div className="text-4xl">🔒</div>
+        <div className="font-display font-semibold text-lg">Acesso não liberado</div>
+        <p className="text-sm text-dim">
+          O e-mail <b className="text-cream font-mono">{session.user.email}</b> não está cadastrado
+          como administrador nem como vendedor. Fale com o administrador do painel.
+        </p>
+        <button onClick={() => supabase.auth.signOut()}
+          className="text-xs text-dim border border-line rounded-lg px-4 py-2 hover:text-danger transition">sair →</button>
+      </div>
+    </div>
+  )
+
+  const tabs = TABS.filter(t => papel.role === 'admin' || TABS_VENDEDOR.includes(t.id))
+  if (!tabs.some(t => t.id === tab)) setTab('inbox')
 
   return (
     <div className="h-full flex flex-col md:flex-row">
@@ -71,7 +97,7 @@ export default function App() {
             className="ml-auto text-[11px] text-dim hover:text-danger transition-colors">sair →</button>
         </div>
         <nav className="flex gap-1 px-2 py-2 overflow-x-auto">
-          {TABS.map(t => (
+          {tabs.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`relative shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5
                 ${tab === t.id ? 'bg-panel2 text-cream' : 'text-dim'}`}>
@@ -95,7 +121,7 @@ export default function App() {
           <div className="font-mono text-[10px] text-dim mt-1.5 uppercase tracking-[0.2em]">Central de Comando</div>
         </div>
         <nav className="flex-1 py-4 px-3 space-y-1">
-          {TABS.map(t => (
+          {tabs.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2.5
                 ${tab === t.id ? 'tab-active bg-panel2' : 'text-dim hover:text-cream hover:bg-panel2/60'}`}>
@@ -121,7 +147,8 @@ export default function App() {
         {tab === 'inbox' && <Inbox convInicial={convParaAbrir} aoConsumir={() => setConvParaAbrir(null)} />}
         {tab === 'escalacoes' && <Escalacoes irParaInbox={(convId?: string) => { setConvParaAbrir(convId ?? null); setTab('inbox') }} />}
         {tab === 'kanban' && <Kanban />}
-        {tab === 'comercial' && <Comercial irParaInbox={(convId: string) => { setConvParaAbrir(convId); setTab('inbox') }} />}
+        {tab === 'comercial' && <Comercial irParaInbox={(convId: string) => { setConvParaAbrir(convId); setTab('inbox') }}
+          isAdmin={papel.role === 'admin'} meuVendedorId={papel.vendedor_id ?? null} meuTipo={papel.tipo ?? null} />}
         {tab === 'agentes' && <Agentes />}
         {tab === 'disparos' && <Disparos />}
         {tab === 'equipe' && <Equipe />}

@@ -67,7 +67,8 @@ function diasRestantes(expiresAt: string) {
   return Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 86400000))
 }
 
-export default function Comercial({ irParaInbox }: { irParaInbox: (convId: string) => void }) {
+export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId = null, meuTipo = null }:
+  { irParaInbox: (convId: string) => void; isAdmin?: boolean; meuVendedorId?: string | null; meuTipo?: string | null }) {
   const [subTab, setSubTab] = useState<'pipeline' | 'gestao'>('pipeline')
   const [vendedores, setVendedores] = useState<Vendedor[]>([])
   const [meuEmail, setMeuEmail] = useState('')
@@ -81,8 +82,19 @@ export default function Comercial({ irParaInbox }: { irParaInbox: (convId: strin
   const [dtAgenda, setDtAgenda] = useState('')
   const [dados, setDados] = useState<DadosLead | null>(null)
   const [notaNova, setNotaNova] = useState('')
+  const [trocaSenha, setTrocaSenha] = useState(false)
+  const [senha, setSenha] = useState({ a: '', b: '' })
   const [msg, setMsg] = useState('')
   const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(''), 6000) }
+
+  const salvarSenha = async () => {
+    if (senha.a.length < 8) return flash('A senha precisa ter pelo menos 8 caracteres.')
+    if (senha.a !== senha.b) return flash('As senhas não conferem.')
+    const { error } = await supabase.auth.updateUser({ password: senha.a })
+    if (error) return flash('Erro ao salvar a senha: ' + error.message)
+    setTrocaSenha(false); setSenha({ a: '', b: '' })
+    flash('✅ Senha salva — no próximo login use e-mail + senha.')
+  }
 
   const carregarVendedores = async () => {
     const { data } = await supabase.from('vendedores').select('*').order('nome')
@@ -90,8 +102,12 @@ export default function Comercial({ irParaInbox }: { irParaInbox: (convId: strin
     const { data: u } = await supabase.auth.getUser()
     const email = u.user?.email ?? ''
     setMeuEmail(email)
-    const eu = ((data as any) ?? []).find((v: Vendedor) => v.email === email)
-    setVendSel(sel => sel || eu?.id || ((data as any) ?? [])[0]?.id || '')
+    // vendedor fica TRAVADO no próprio pipeline; admin navega por todos
+    if (!isAdmin && meuVendedorId) setVendSel(meuVendedorId)
+    else {
+      const eu = ((data as any) ?? []).find((v: Vendedor) => v.email === email)
+      setVendSel(sel => sel || eu?.id || ((data as any) ?? [])[0]?.id || '')
+    }
   }
   useEffect(() => { carregarVendedores() }, [])
 
@@ -210,7 +226,9 @@ export default function Comercial({ irParaInbox }: { irParaInbox: (convId: strin
       <div className="px-4 md:px-6 pt-4 pb-3 border-b border-line flex items-center gap-3 flex-wrap">
         <h1 className="font-display font-bold text-xl">☎️ Comercial Humano</h1>
         <div className="flex gap-1 ml-auto">
-          {([['pipeline', '📋 Pipeline'], ['gestao', '📊 Gestão']] as const).map(([id, lbl]) => (
+          {([['pipeline', '📋 Pipeline'], ['gestao', '📊 Gestão']] as const)
+            .filter(([id]) => isAdmin || id !== 'gestao')
+            .map(([id, lbl]) => (
             <button key={id} onClick={() => setSubTab(id)}
               className={`text-xs px-3 py-1.5 rounded-lg border transition
                 ${subTab === id ? 'border-gold/60 bg-gold/10 text-cream' : 'border-line text-dim hover:text-cream'}`}>
@@ -224,16 +242,33 @@ export default function Comercial({ irParaInbox }: { irParaInbox: (convId: strin
       {subTab === 'pipeline' ? (
         <div className="flex-1 min-h-0 flex flex-col">
           <div className="px-4 md:px-6 py-3 flex items-center gap-3 flex-wrap">
-            <select value={vendSel} onChange={e => setVendSel(e.target.value)} className={inp + ' min-w-52'}>
-              {vendedores.filter(v => v.tipo === 'closer').map(v => (
-                <option key={v.id} value={v.id}>{v.nome}{v.email === meuEmail ? ' (você)' : ''}</option>
-              ))}
-            </select>
+            {isAdmin ? (
+              <select value={vendSel} onChange={e => setVendSel(e.target.value)} className={inp + ' min-w-52'}>
+                {vendedores.filter(v => v.tipo === 'closer').map(v => (
+                  <option key={v.id} value={v.id}>{v.nome}{v.email === meuEmail ? ' (você)' : ''}</option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-sm font-medium border border-gold/40 bg-gold/10 text-gold rounded-lg px-3 py-2">
+                {vendedores.find(v => v.id === meuVendedorId)?.nome ?? 'Meu pipeline'}
+              </span>
+            )}
             <span className="text-[11px] text-dim">
               {porColuna.recebido.length + porColuna.cadencia.length + porColuna.agendado.length} em posse ·
               abra 📇 Dados do lead antes de ligar · registre CADA tentativa
             </span>
+            {!isAdmin && (
+              <button onClick={() => setTrocaSenha(true)} title="Definir minha senha de acesso"
+                className="ml-auto text-[11px] text-dim border border-line rounded-lg px-2.5 py-1.5 hover:text-cream transition">🔑 senha</button>
+            )}
           </div>
+
+          {!isAdmin && meuTipo === 'escalacao' && (
+            <div className="mx-4 md:mx-6 mb-2 text-[11px] text-dim border border-teal/25 bg-teal/5 rounded-xl px-3 py-2">
+              Seu perfil é <b className="text-teal">escalação</b>: seu trabalho vive nas abas 🚨 Escalações e 💬 Inbox
+              (atender e devolver para a IA). A roleta de leads é só para vendedores closer.
+            </div>
+          )}
 
           {/* régua de ligações agendadas — o vendedor não pode esquecer */}
           {agenda.length > 0 && (
@@ -456,6 +491,27 @@ export default function Comercial({ irParaInbox }: { irParaInbox: (convId: strin
         </>
       )}
 
+      {/* Modal: minha senha (vendedor não tem acesso à aba Equipe) */}
+      {trocaSenha && (
+        <>
+          <div className="fixed inset-0 z-40 bg-ink/60" onClick={() => setTrocaSenha(false)} />
+          <div className="fixed z-50 inset-x-4 top-24 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-[22rem] bg-panel border border-line rounded-2xl shadow-2xl p-5 space-y-3">
+            <h2 className="font-display font-semibold">🔑 Minha senha</h2>
+            <p className="text-[11px] text-dim">Vale junto com o link mágico — no próximo login entre com e-mail + senha.</p>
+            <input type="password" className={inp + ' w-full'} placeholder="Nova senha (mín. 8)" value={senha.a}
+              onChange={e => setSenha({ ...senha, a: e.target.value })} autoComplete="new-password" />
+            <input type="password" className={inp + ' w-full'} placeholder="Repetir a nova senha" value={senha.b}
+              onChange={e => setSenha({ ...senha, b: e.target.value })} autoComplete="new-password"
+              onKeyDown={e => e.key === 'Enter' && salvarSenha()} />
+            <div className="flex gap-2">
+              <button onClick={() => setTrocaSenha(false)} className="flex-1 text-sm border border-line text-dim rounded-lg py-2 hover:text-cream transition">Cancelar</button>
+              <button onClick={salvarSenha} disabled={!senha.a || !senha.b}
+                className="flex-1 text-sm font-semibold bg-gold text-ink rounded-lg py-2 disabled:opacity-40 hover:brightness-110 transition">Salvar senha</button>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Modal: agendar ligação (data + hora) */}
       {agendando && (
         <>
@@ -560,12 +616,19 @@ function Gestao({ vendedores, recarregarVendedores, flash }:
 
   const addVendedor = async () => {
     if (!novoV.nome.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(novoV.email.trim())) return flash('Nome e e-mail válido são obrigatórios.')
+    const email = novoV.email.trim().toLowerCase()
     const { error } = await supabase.from('vendedores').insert({
-      nome: novoV.nome.trim(), email: novoV.email.trim().toLowerCase(),
+      nome: novoV.nome.trim(), email,
       telefone: novoV.telefone.trim() || null, tipo: novoV.tipo,
     })
     if (error) return flash('Erro: ' + error.message)
-    flash(`✅ ${novoV.nome} cadastrado. Lembre de dar acesso ao painel na aba 👥 Equipe (mesmo e-mail).`)
+    // acesso do vendedor = estar nesta tabela (migration 18); manda o link de entrada já
+    const { error: errLink } = await supabase.auth.signInWithOtp({
+      email, options: { emailRedirectTo: 'https://fabiomsam-cloud.github.io/anne-painel/', shouldCreateUser: true },
+    })
+    flash(errLink
+      ? `✅ ${novoV.nome} cadastrado como vendedor, mas o e-mail de acesso falhou (${errLink.message}) — a pessoa pode pedir o link mágico na tela de login.`
+      : `✅ ${novoV.nome} cadastrado — link de acesso enviado por e-mail. Ele verá só Inbox, Escalações e Comercial.`)
     setNovoV({ nome: '', email: '', telefone: '', tipo: 'closer' })
     recarregarVendedores()
   }
