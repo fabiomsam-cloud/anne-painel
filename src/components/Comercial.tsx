@@ -647,6 +647,39 @@ function Gestao({ vendedores, recarregarVendedores, flash }:
     recarregarVendedores()
   }
 
+  const mudarTipo = async (v: Vendedor) => {
+    const novo = v.tipo === 'closer' ? 'escalacao' : 'closer'
+    const { count } = await supabase.from('lead_assignments')
+      .select('*', { count: 'exact', head: true }).eq('vendedor_id', v.id).eq('status', 'ativo')
+    if (novo === 'escalacao' && (count ?? 0) > 0 &&
+        !window.confirm(`${v.nome} ainda tem ${count} lead(s) em posse.\n\nAo virar ESCALAÇÃO ele sai da roleta imediatamente, mas os cards atuais continuam com ele até fechar/devolver. Continuar?`)) return
+    await supabase.from('vendedores').update({ tipo: novo }).eq('id', v.id)
+    flash(`${v.nome} agora é ${novo === 'closer' ? '☎ closer (entra na roleta)' : '🚨 escalação (bônus sobre vendas da IA)'}.`)
+    recarregarVendedores()
+  }
+
+  const deletarVendedor = async (v: Vendedor) => {
+    const { count } = await supabase.from('lead_assignments')
+      .select('*', { count: 'exact', head: true }).eq('vendedor_id', v.id)
+    const aviso = (count ?? 0) > 0
+      ? `\n\n⚠️ Isso APAGA também os ${count} card(s) e todas as atividades dele — o histórico sai das métricas de coorte. Leads em posse voltam para a base (recebem campanhas de novo).`
+      : ''
+    if (!window.confirm(`Excluir ${v.nome} PERMANENTEMENTE?${aviso}\n\nNão dá para desfazer. Para pausar sem perder histórico, use "Desativar".`)) return
+    // 1) leads em posse voltam para a base
+    const { data: ativos } = await supabase.from('lead_assignments')
+      .select('conversation_id').eq('vendedor_id', v.id).eq('status', 'ativo')
+    const convIds = (((ativos as any) ?? []) as { conversation_id: string | null }[])
+      .map(a => a.conversation_id).filter(Boolean) as string[]
+    if (convIds.length) await supabase.from('conversations')
+      .update({ status: 'dormant' }).in('id', convIds).eq('status', 'humano_comercial')
+    // 2) cards (atividades caem em cascata) e depois o vendedor
+    await supabase.from('lead_assignments').delete().eq('vendedor_id', v.id)
+    const { error } = await supabase.from('vendedores').delete().eq('id', v.id)
+    if (error) return flash('Erro ao excluir: ' + error.message)
+    flash(`${v.nome} excluído por completo.`)
+    recarregarVendedores()
+  }
+
   const criarCorte = async () => {
     if (!novoCorte.inicio || !novoCorte.fim) return flash('Defina início e fim do corte.')
     const { data: u } = await supabase.auth.getUser()
@@ -771,11 +804,22 @@ function Gestao({ vendedores, recarregarVendedores, flash }:
                 {v.tipo === 'closer' ? '☎ closer' : '🚨 escalação'}
               </span>
               {v.tipo === 'closer' && <span className="text-[10px] font-mono text-dim">{ativosCount[v.id] ?? 0} em posse</span>}
-              <button onClick={() => toggleAtivo(v)}
-                className={`ml-auto text-xs border rounded-lg px-2.5 py-1 transition ${v.ativo
-                  ? 'border-line text-dim hover:text-danger hover:border-danger/40' : 'border-win/40 text-win hover:bg-win/10'}`}>
-                {v.ativo ? 'Desativar' : 'Reativar'}
-              </button>
+              <div className="ml-auto flex items-center gap-1.5">
+                <button onClick={() => mudarTipo(v)}
+                  title={v.tipo === 'closer' ? 'Mover para escalação (sai da roleta)' : 'Mover para closer (entra na roleta)'}
+                  className="text-xs border border-line text-dim rounded-lg px-2.5 py-1 hover:text-cream hover:border-gold/40 transition">
+                  ↔ {v.tipo === 'closer' ? 'virar escalação' : 'virar closer'}
+                </button>
+                <button onClick={() => toggleAtivo(v)}
+                  className={`text-xs border rounded-lg px-2.5 py-1 transition ${v.ativo
+                    ? 'border-line text-dim hover:text-danger hover:border-danger/40' : 'border-win/40 text-win hover:bg-win/10'}`}>
+                  {v.ativo ? 'Desativar' : 'Reativar'}
+                </button>
+                <button onClick={() => deletarVendedor(v)} title="Excluir permanentemente (apaga cards e histórico)"
+                  className="text-xs border border-danger/30 text-danger/80 rounded-lg px-2.5 py-1 hover:bg-danger/10 hover:text-danger transition">
+                  🗑
+                </button>
+              </div>
             </div>
           ))}
           {!vendedores.length && <div className="text-dim text-sm py-3 text-center">Nenhum vendedor cadastrado.</div>}
