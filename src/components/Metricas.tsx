@@ -16,17 +16,19 @@ type Matriculado = {
 const ATTR: Record<string, { label: string; cls: string }> = {
   anne_ia: { label: '🤖 Anne IA', cls: 'text-teal border-teal/40 bg-teal/10' },
   anne_humano: { label: '👤 Humano (link)', cls: 'text-gold border-gold/40 bg-gold/10' },
+  anne_blindado: { label: '🛡 Checkout Blindado', cls: 'text-gold border-gold/50 bg-gold/15' },
   anne_disparo: { label: '📣 Influência disparo', cls: 'text-win border-win/40 bg-win/10' },
   externa: { label: '⚪ Externa', cls: 'text-dim border-line' },
 }
 // Venda da Anne = link de checkout enviado PELA PLATAFORMA antes do pagamento
 // (IA ou humano). Disparo recebido é influência de campanha, não conversão.
-const ANNE_ATTRS = ['anne_ia', 'anne_humano']
+// blindado conta como venda da Anne (conversão direta da régua) desde 10/08
+const ANNE_ATTRS = ['anne_ia', 'anne_humano', 'anne_blindado']
 
 type AgRow = {
   agent_slug: string; mes: string
   vendas_ia: number; vendas_humano: number; vendas_anne: number; valor_anne: number | null
-  influenciadas_disparo: number; outros_canais: number
+  vendas_blindado: number; influenciadas_disparo: number; outros_canais: number
   total_registradas: number; valor_total: number | null
 }
 
@@ -363,6 +365,7 @@ export default function Metricas() {
                 <th className="text-left px-4 py-2.5">Agente</th>
                 <th className="text-right px-3 py-2.5">🤖 IA</th>
                 <th className="text-right px-3 py-2.5">👤 Humano</th>
+                <th className="text-right px-3 py-2.5">🛡 Blindado</th>
                 <th className="text-right px-3 py-2.5">Anne</th>
                 <th className="text-right px-3 py-2.5">Valor Anne</th>
                 <th className="text-right px-3 py-2.5">📣 Influência</th>
@@ -375,6 +378,7 @@ export default function Metricas() {
                   <td className="px-4 py-2.5 font-medium">{AGENT_LABEL[r.agent_slug] ?? r.agent_slug ?? '(sem agente)'}</td>
                   <td className="px-3 py-2.5 text-right text-teal font-semibold">{r.vendas_ia}</td>
                   <td className="px-3 py-2.5 text-right text-gold font-semibold">{r.vendas_humano}</td>
+                  <td className="px-3 py-2.5 text-right text-gold">{r.vendas_blindado ?? 0}</td>
                   <td className="px-3 py-2.5 text-right font-bold">{r.vendas_anne}</td>
                   <td className="px-3 py-2.5 text-right">{r.valor_anne != null ? brl(Number(r.valor_anne)) : '—'}</td>
                   <td className="px-3 py-2.5 text-right text-dim">{r.influenciadas_disparo}</td>
@@ -382,7 +386,7 @@ export default function Metricas() {
                 </tr>
               ))}
               {agRows.filter(r => r.mes === mesSel).length === 0 && (
-                <tr><td colSpan={7} className="text-center py-6 text-dim text-sm">Sem vendas registradas no mês.</td></tr>
+                <tr><td colSpan={8} className="text-center py-6 text-dim text-sm">Sem vendas registradas no mês.</td></tr>
               )}
             </tbody>
           </table>
