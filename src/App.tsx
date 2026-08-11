@@ -144,7 +144,7 @@ export default function App() {
 
       {/* Conteúdo */}
       <main className="flex-1 min-w-0 overflow-hidden">
-        {tab === 'inbox' && <Inbox convInicial={convParaAbrir} aoConsumir={() => setConvParaAbrir(null)} />}
+        {tab === 'inbox' && <Inbox convInicial={convParaAbrir} aoConsumir={() => setConvParaAbrir(null)} isAdmin={papel.role === 'admin'} />}
         {tab === 'escalacoes' && <Escalacoes irParaInbox={(convId?: string) => { setConvParaAbrir(convId ?? null); setTab('inbox') }} />}
         {tab === 'kanban' && <Kanban />}
         {tab === 'comercial' && <Comercial irParaInbox={(convId: string) => { setConvParaAbrir(convId); setTab('inbox') }}

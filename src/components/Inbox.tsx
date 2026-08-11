@@ -67,7 +67,8 @@ const FROM_STYLE: Record<string, string> = {
   system: 'self-center bg-panel border-line text-dim text-xs',
 }
 
-export default function Inbox({ convInicial, aoConsumir }: { convInicial?: string | null; aoConsumir?: () => void } = {}) {
+export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
+  { convInicial?: string | null; aoConsumir?: () => void; isAdmin?: boolean } = {}) {
   const [convs, setConvs] = useState<Conv[]>([])
   const [sel, setSel] = useState<Conv | null>(null)
   const [msgs, setMsgs] = useState<Msg[]>([])
@@ -480,8 +481,11 @@ export default function Inbox({ convInicial, aoConsumir }: { convInicial?: strin
                   )}
                   <div className="text-sm whitespace-pre-wrap break-words">{m.transcript || m.content}</div>
                   <div className="text-[10px] font-mono text-dim/70 mt-1 text-right flex items-center justify-end gap-2">
-                    <button onClick={() => abrirKb(m)} title="Adicionar à base de conhecimento do agente"
-                      className="opacity-40 hover:opacity-100 transition">📚</button>
+                    {/* KB é conhecimento permanente de TODAS as conversas — inclusão só de admin (migration 20; RLS bloqueia por qualquer via) */}
+                    {isAdmin && (
+                      <button onClick={() => abrirKb(m)} title="Adicionar à base de conhecimento do agente"
+                        className="opacity-40 hover:opacity-100 transition">📚</button>
+                    )}
                     <span>{m.from_type === 'ia' ? '🤖 ' : m.from_type === 'human' ? '👤 ' : ''}{fmtHora(m.created_at)}</span>
                   </div>
                 </div>
