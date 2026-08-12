@@ -32,21 +32,31 @@ type AgRow = {
   total_registradas: number; valor_total: number | null
 }
 
-// Período dos filtros: hoje/7/30 = janela móvel; tudo = sem filtro; custom = calendário
-type Periodo = { tipo: 'hoje' | 'd7' | 'd30' | 'tudo' | 'custom'; de: string; ate: string }
+// Período dos filtros em DIA CALENDÁRIO de Manaus (UTC-4, sem horário de verão):
+// "hoje" = desde 00:00 de Manaus, nunca janela móvel de 24h (confundia com vendas de ontem)
+const MANAUS_OFF = '-04:00'
+const diaManaus = (t: number) => new Date(t).toLocaleDateString('en-CA', { timeZone: 'America/Manaus' })
+const inicioDia = (ymd: string) => new Date(ymd + 'T00:00:00' + MANAUS_OFF).toISOString()
+type Periodo = { tipo: 'hoje' | 'ontem' | 'd7' | 'd30' | 'mes' | 'tudo' | 'custom'; de: string; ate: string }
 function rangePeriodo(p: Periodo): { de: string | null; ate: string | null } {
-  const movel = { hoje: 1, d7: 7, d30: 30 } as Record<string, number>
-  if (movel[p.tipo]) return { de: new Date(Date.now() - movel[p.tipo] * 86400000).toISOString(), ate: null }
+  const agora = Date.now()
+  if (p.tipo === 'hoje') return { de: inicioDia(diaManaus(agora)), ate: null }
+  if (p.tipo === 'ontem') return { de: inicioDia(diaManaus(agora - 86400000)), ate: inicioDia(diaManaus(agora)) }
+  if (p.tipo === 'd7') return { de: inicioDia(diaManaus(agora - 6 * 86400000)), ate: null }
+  if (p.tipo === 'd30') return { de: inicioDia(diaManaus(agora - 29 * 86400000)), ate: null }
+  if (p.tipo === 'mes') return { de: inicioDia(diaManaus(agora).slice(0, 8) + '01'), ate: null }
   if (p.tipo === 'custom' && p.de) return {
-    de: new Date(p.de + 'T00:00:00').toISOString(),
-    ate: p.ate ? new Date(new Date(p.ate + 'T00:00:00').getTime() + 86400000).toISOString() : null,
+    de: inicioDia(p.de),
+    ate: p.ate ? new Date(new Date(p.ate + 'T00:00:00' + MANAUS_OFF).getTime() + 86400000).toISOString() : null,
   }
   return { de: null, ate: null }
 }
 function labelPeriodo(p: Periodo) {
   if (p.tipo === 'hoje') return 'hoje'
+  if (p.tipo === 'ontem') return 'ontem'
   if (p.tipo === 'd7') return '7 dias'
   if (p.tipo === 'd30') return '30 dias'
+  if (p.tipo === 'mes') return 'este mês'
   if (p.tipo === 'custom') return `${p.de || '…'} → ${p.ate || 'hoje'}`
   return 'todo período'
 }
@@ -238,7 +248,7 @@ export default function Metricas() {
         <h1 className="font-display font-bold text-2xl">Métricas</h1>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex gap-1 border border-line rounded-lg p-1">
-            {([['hoje', 'Hoje'], ['d7', '7 dias'], ['d30', '30 dias'], ['tudo', 'Todo período'], ['custom', '🗓 Personalizado']] as const).map(([t, lbl]) => (
+            {([['hoje', 'Hoje'], ['ontem', 'Ontem'], ['d7', '7 dias'], ['d30', '30 dias'], ['mes', 'Este mês'], ['tudo', 'Todo período'], ['custom', '🗓 Personalizado']] as const).map(([t, lbl]) => (
               <button key={t} onClick={() => setPeriodo(p => ({ ...p, tipo: t }))}
                 className={`text-xs px-3 py-1 rounded-md transition ${periodo.tipo === t ? 'bg-gold text-ink font-semibold' : 'text-dim hover:text-cream'}`}>
                 {lbl}
