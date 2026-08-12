@@ -61,6 +61,20 @@ const FUNIL_COLS = [
   { k: 'humano', label: '👤 Humano' }, { k: 'won', label: '✅ Matric.' },
 ]
 
+// 💸 Custos de template Meta (fn_custos_templates — tarifa em global_settings.tarifa_template)
+type CustoAgente = {
+  agent_slug: string; templates: number; custo: number
+  vendas_anne: number; receita_anne: number; influenciadas: number; receita_influencia: number
+}
+type CustoCampanha = { name: string; agent_slug: string; inicio: string; enviados: number; respostas: number; custo: number }
+type CustoAcao = { acao: string; templates: number; custo: number }
+type CustoData = { tarifa: number; agentes: CustoAgente[]; campanhas: CustoCampanha[]; acoes: CustoAcao[] }
+const ACAO_LABEL: Record<string, string> = {
+  disparo: '📣 Disparo em massa', convite: '💌 Convite (disparo)', followup: '📨 Follow-up (régua)',
+  blindado: '🛡 Checkout blindado', carrinho: '🛒 Carrinho abandonado', retomada: '🔄 Retomada',
+  nutricao: '🌱 Nutrição', outros: 'Outros',
+}
+
 // 🛡 Checkout blindado — leads do popup pré-Hubla (dados do SOU Data Core via proxy n8n)
 const BLINDADO_URL = 'https://workflows.manager03.scvpgti.com.br/webhook/anne/blindado/metricas'
 type BlinData = {
@@ -101,6 +115,7 @@ export default function Metricas() {
   const [agRows, setAgRows] = useState<AgRow[]>([])
   const [mesSel, setMesSel] = useState('')
   const [blin, setBlin] = useState<BlinData | null>(null)
+  const [custos, setCustos] = useState<CustoData | null>(null)
   const [blinAnne, setBlinAnne] = useState<{ enviados: Num; pulados: Num; responderam: Num; won: Num }>({
     enviados: null, pulados: null, responderam: null, won: null })
 
@@ -140,6 +155,14 @@ export default function Metricas() {
     const { de, ate } = rangePeriodo(periodo)
     supabase.rpc('fn_funil_agentes', { p_desde: de, p_ate: ate })
       .then(({ data }) => setFunil(((data as any) ?? []) as FunilRow[]))
+  }, [periodo])
+
+  // 💸 Custos de template Meta — agregação no banco (RPC), segue o filtro de período
+  useEffect(() => {
+    const { de, ate } = rangePeriodo(periodo)
+    setCustos(null)
+    supabase.rpc('fn_custos_templates', { p_desde: de, p_ate: ate })
+      .then(({ data }) => setCustos((data as any) ?? null))
   }, [periodo])
 
   useEffect(() => {
@@ -392,6 +415,122 @@ export default function Metricas() {
           </table>
         </div>
       </div>
+
+      {/* 💸 Custos de disparo (templates Meta) — segue o filtro de período */}
+      {custos && (() => {
+        const ags = custos.agentes ?? []
+        const custoTotal = ags.reduce((s, a) => s + Number(a.custo), 0)
+        const tplTotal = ags.reduce((s, a) => s + Number(a.templates), 0)
+        const vendasTotal = ags.reduce((s, a) => s + a.vendas_anne + a.influenciadas, 0)
+        const receitaTotal = ags.reduce((s, a) => s + Number(a.receita_anne) + Number(a.receita_influencia), 0)
+        const cpa = (a: CustoAgente) => {
+          const v = a.vendas_anne + a.influenciadas
+          return v && Number(a.custo) ? brl(Number(a.custo) / v) : '—'
+        }
+        const roi = (a: CustoAgente) => {
+          const rec = Number(a.receita_anne) + Number(a.receita_influencia)
+          return Number(a.custo) && rec ? `${Math.round(rec / Number(a.custo))}x` : '—'
+        }
+        const camps = custos.campanhas ?? []
+        return (
+          <div className="max-w-5xl mt-8">
+            <h2 className="font-display font-semibold text-lg mb-3">💸 Custo de disparos <span className="text-dim text-xs font-normal">· templates Meta a {brl(Number(custos.tarifa))}/msg · {labelPeriodo(periodo)}</span></h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-w-4xl">
+              <Card titulo="Custo total" valor={brl(custoTotal)} destaque sub={`${tplTotal.toLocaleString('pt-BR')} templates enviados`} />
+              <Card titulo="Vendas (Anne + influência)" valor={String(vendasTotal)} sub={`receita ${brl(receitaTotal)}`} />
+              <Card titulo="CPA por disparo" valor={vendasTotal && custoTotal ? brl(custoTotal / vendasTotal) : '—'} sub="custo ÷ vendas Anne + influenciadas" />
+              <Card titulo="ROI" valor={custoTotal && receitaTotal ? `${Math.round(receitaTotal / custoTotal)}x` : '—'} sub="receita ÷ custo de disparo" />
+            </div>
+
+            {/* Por agente */}
+            {ags.length > 0 && (
+              <div className="border border-line rounded-xl overflow-x-auto bg-panel/50 mt-4">
+                <table className="w-full text-sm whitespace-nowrap">
+                  <thead>
+                    <tr className="text-[10px] font-mono text-dim uppercase tracking-widest border-b border-line">
+                      <th className="text-left px-4 py-2.5">Agente</th>
+                      <th className="text-right px-3 py-2.5">Templates</th>
+                      <th className="text-right px-3 py-2.5">Custo</th>
+                      <th className="text-right px-3 py-2.5">Vendas Anne</th>
+                      <th className="text-right px-3 py-2.5">📣 Influência</th>
+                      <th className="text-right px-3 py-2.5">Receita</th>
+                      <th className="text-right px-3 py-2.5">CPA</th>
+                      <th className="text-right px-4 py-2.5">ROI</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ags.map(a => (
+                      <tr key={a.agent_slug} className="border-b border-line/50 last:border-0">
+                        <td className="px-4 py-2.5 font-medium">{AGENT_LABEL[a.agent_slug] ?? a.agent_slug}</td>
+                        <td className="px-3 py-2.5 text-right">{Number(a.templates).toLocaleString('pt-BR')}</td>
+                        <td className="px-3 py-2.5 text-right font-semibold text-gold">{brl(Number(a.custo))}</td>
+                        <td className="px-3 py-2.5 text-right text-win font-semibold">{a.vendas_anne || <span className="text-dim/40">·</span>}</td>
+                        <td className="px-3 py-2.5 text-right text-dim">{a.influenciadas || <span className="text-dim/40">·</span>}</td>
+                        <td className="px-3 py-2.5 text-right">{Number(a.receita_anne) + Number(a.receita_influencia) > 0 ? brl(Number(a.receita_anne) + Number(a.receita_influencia)) : '—'}</td>
+                        <td className="px-3 py-2.5 text-right">{cpa(a)}</td>
+                        <td className="px-4 py-2.5 text-right font-bold">{roi(a)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Por campanha */}
+            {camps.length > 0 && (
+              <div className="border border-line rounded-xl overflow-x-auto bg-panel/50 mt-3">
+                <table className="w-full text-sm whitespace-nowrap">
+                  <thead>
+                    <tr className="text-[10px] font-mono text-dim uppercase tracking-widest border-b border-line">
+                      <th className="text-left px-4 py-2.5">Campanha</th>
+                      <th className="text-left px-3 py-2.5">Agente</th>
+                      <th className="text-right px-3 py-2.5">Enviados</th>
+                      <th className="text-right px-3 py-2.5">Respostas</th>
+                      <th className="text-right px-3 py-2.5">Taxa</th>
+                      <th className="text-right px-3 py-2.5">Custo</th>
+                      <th className="text-right px-4 py-2.5">R$/resposta</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {camps.map(c => (
+                      <tr key={c.name + c.inicio} className="border-b border-line/50 last:border-0">
+                        <td className="px-4 py-2.5 font-medium max-w-[260px] truncate" title={c.name}>{c.name}</td>
+                        <td className="px-3 py-2.5 text-dim">{AGENT_LABEL[c.agent_slug] ?? c.agent_slug ?? '—'}</td>
+                        <td className="px-3 py-2.5 text-right">{Number(c.enviados).toLocaleString('pt-BR')}</td>
+                        <td className="px-3 py-2.5 text-right text-teal font-semibold">{c.respostas}</td>
+                        <td className="px-3 py-2.5 text-right">{pct(c.respostas, c.enviados)}</td>
+                        <td className="px-3 py-2.5 text-right text-gold">{brl(Number(c.custo))}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold">{c.respostas ? brl(Number(c.custo) / c.respostas) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Por ação */}
+            {(custos.acoes ?? []).length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {(custos.acoes ?? []).map(ac => (
+                  <div key={ac.acao} className="border border-line rounded-lg px-3 py-1.5 bg-panel/50 text-[12px]">
+                    <span className="font-medium">{ACAO_LABEL[ac.acao] ?? ac.acao}</span>
+                    <span className="text-dim ml-2">{Number(ac.templates).toLocaleString('pt-BR')} msgs</span>
+                    <span className="text-gold ml-2 font-semibold">{brl(Number(ac.custo))}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <p className="text-[11px] text-dim/60 mt-2 leading-relaxed">
+              <b className="text-dim">Custo</b> = templates Meta enviados × tarifa ({brl(Number(custos.tarifa))}/msg — ajustável em
+              <span className="font-mono"> global_settings.tarifa_template</span>). Inclui disparos em massa, blindado, carrinho
+              e follow-ups fora da janela de 24h. Conversas dentro da janela são grátis.
+              <b className="text-dim"> CPA</b> = custo ÷ (vendas Anne + influenciadas no período).
+              <b className="text-dim"> ROI</b> = receita dessas vendas ÷ custo. Nutrição não vende por design — o retorno dela aparece no funil TJ-AM.
+            </p>
+          </div>
+        )
+      })()}
 
       {/* 🛡 Checkout Blindado — funil da régua */}
       {blin && (() => {
