@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { supabase, fmtHora, fmtFone, AGENT_LABEL } from '../lib/supabase'
+import { supabase, fmtHora, fmtFone, AGENT_LABEL, STATUS_META } from '../lib/supabase'
 
 type Num = number | null
 type Venda = {
@@ -119,7 +119,8 @@ export default function Metricas() {
   const [m, setM] = useState<Record<string, Num>>({})
   const [periodo, setPeriodo] = useState<Periodo>({ tipo: 'hoje', de: '', ate: '' })
   const [funil, setFunil] = useState<FunilRow[]>([])
-  const [lista, setLista] = useState<'vendas' | 'matriculados' | null>(null)
+  const [lista, setLista] = useState<'vendas' | 'matriculados' | 'checkouts' | null>(null)
+  const [checkouts, setCheckouts] = useState<{ id: string; created_at: string; agent_slug: string; via: string; name: string | null; phone: string | null; conv_status: string | null; matriculado: boolean }[]>([])
   const [vendas, setVendas] = useState<Venda[]>([])
   const [matriculados, setMatriculados] = useState<Matriculado[]>([])
   const [agRows, setAgRows] = useState<AgRow[]>([])
@@ -221,6 +222,15 @@ export default function Metricas() {
     })()
   }, [periodo])
 
+  const abrirCheckouts = async () => {
+    const { de, ate } = rangePeriodo(periodo)
+    let q = supabase.from('vw_checkouts_lista').select('*')
+    if (de) q = q.gte('created_at', de)
+    if (ate) q = q.lt('created_at', ate)
+    const { data } = await q.order('created_at', { ascending: false }).limit(1000)
+    setCheckouts(((data as any) ?? [])); setLista('checkouts')
+  }
+
   const abrirVendas = async () => {
     const { de, ate } = rangePeriodo(periodo)
     let q = supabase.from('vw_vendas_lista').select('*')
@@ -274,7 +284,8 @@ export default function Metricas() {
         <Card titulo="Msgs recebidas" valor={n(m.msgsIn)} />
         <Card titulo="Respostas da IA" valor={n(m.msgsIa)} sub={`taxa de resposta ${pct(m.msgsIa, m.msgsIn)}`} />
         <Card titulo="Escalações abertas" valor={n(m.escAbertas)} sub={`${n(m.escTotal)} no período`} />
-        <Card titulo="Checkouts enviados" valor={n(m.checkouts)} destaque />
+        <Card titulo="Checkouts enviados" valor={n(m.checkouts)} destaque onClick={abrirCheckouts}
+          sub="clique para ver a lista por agente" />
         <Card titulo="Vendas da Anne" valor={n(m.vendasAnne)} destaque onClick={abrirVendas}
           sub={`+${n(m.vendasDisparo)} influência disparo · +${n(m.vendasExternas)} externas · clique p/ ver`} />
         <Card titulo="Matriculados Anne" valor={n(m.wonAnne)} destaque onClick={abrirMatriculados}
@@ -648,7 +659,9 @@ export default function Metricas() {
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center mb-4">
               <h2 className="font-display font-semibold text-lg">
-                {lista === 'vendas' ? `Vendas no período (${labelPeriodo(periodo)})` : 'Matriculados'}
+                {lista === 'vendas' ? `Vendas no período (${labelPeriodo(periodo)})`
+                  : lista === 'checkouts' ? `Checkouts enviados (${labelPeriodo(periodo)})`
+                  : 'Matriculados'}
               </h2>
               <button onClick={() => setLista(null)} className="ml-auto text-dim hover:text-cream text-xl leading-none">✕</button>
             </div>
@@ -672,6 +685,48 @@ export default function Metricas() {
                   </div>
                 ))}
                 {vendas.length === 0 && <div className="text-center py-8 text-dim text-sm">Nenhuma venda no período.</div>}
+              </div>
+            )}
+
+            {lista === 'checkouts' && (
+              <div className="space-y-4">
+                {Object.entries(checkouts.reduce((m: Record<string, typeof checkouts>, c) => {
+                  (m[c.agent_slug] ??= [] as any).push(c); return m
+                }, {})).sort((a, b) => b[1].length - a[1].length).map(([slug, rows]) => (
+                  <div key={slug}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[11px] font-mono uppercase tracking-widest text-gold">
+                        {AGENT_LABEL[slug] ?? slug}
+                      </span>
+                      <span className="text-[10px] font-mono text-dim">{rows.length} link(s)</span>
+                      <span className="text-[10px] font-mono text-win ml-auto">
+                        🏆 {rows.filter(r => r.matriculado).length} matriculado(s)
+                      </span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {rows.map(c => (
+                        <div key={c.id} className="border border-line bg-panel2 rounded-xl px-4 py-2.5 flex items-center gap-3 flex-wrap">
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium truncate">{c.name || fmtFone(c.phone) || '(sem contato)'}</div>
+                            <div className="font-mono text-[10px] text-dim">{fmtFone(c.phone)}</div>
+                          </div>
+                          {c.via === 'followup' && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full border border-gold/40 text-gold bg-gold/5 shrink-0">⏰ via follow-up</span>
+                          )}
+                          {c.matriculado ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full border border-win/40 text-win bg-win/10 shrink-0">🏆 Matriculado</span>
+                          ) : c.conv_status && (
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full border shrink-0 ${STATUS_META[c.conv_status]?.cls ?? 'border-line text-dim'}`}>
+                              {STATUS_META[c.conv_status]?.label ?? c.conv_status}
+                            </span>
+                          )}
+                          <div className="ml-auto font-mono text-[10px] text-dim shrink-0">{fmtHora(c.created_at)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {checkouts.length === 0 && <div className="text-center py-8 text-dim text-sm">Nenhum checkout enviado no período.</div>}
               </div>
             )}
 
