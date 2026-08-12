@@ -170,6 +170,26 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
     carregarCards()
   }
 
+  // admin desfaz devolução por engano: card volta ATIVO para o MESMO vendedor,
+  // conversa volta a ser blindada e a posse ganha pelo menos 2 dias de fôlego
+  const restaurar = async (a: Assignment) => {
+    const novoExpira = new Date(Math.max(new Date(a.expires_at).getTime(), Date.now() + 2 * 86400000)).toISOString()
+    const { error } = await supabase.from('lead_assignments')
+      .update({ status: 'ativo', motivo_perda: null, closed_at: null, expires_at: novoExpira })
+      .eq('id', a.id).eq('status', 'devolvido')
+    if (error) return flash('Erro ao restaurar: ' + error.message)
+    if (a.conversation_id) await supabase.from('conversations')
+      .update({ status: 'humano_comercial' })
+      .eq('id', a.conversation_id).in('status', ['dormant', 'ia'])
+    const { data: u } = await supabase.auth.getUser()
+    await supabase.from('atividades_comercial').insert({
+      assignment_id: a.id, vendedor_id: a.vendedor_id, tipo: 'nota',
+      nota: `card restaurado pelo administrador (${u.user?.email ?? 'painel'}) — devolução desfeita`,
+    })
+    flash('↩️ Lead de volta ao pipeline do vendedor — posse retomada e conversa blindada de novo.')
+    carregarCards()
+  }
+
   const abrirDados = async (a: Assignment) => {
     const { data } = await supabase.from('contacts')
       .select('name,phone,tags,client_memory,source_first')
@@ -343,7 +363,16 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
                               <div className="text-[11px] text-win">🏆 Matriculado · {a.venda_valor ? `R$ ${Number(a.venda_valor).toLocaleString('pt-BR')}` : ''} · {fmtHora(a.closed_at)}</div>
                             )}
                             {(a.status === 'devolvido' || a.status === 'expirado') && (
-                              <div className="text-[10px] text-dim">↩ {a.motivo_perda ?? a.status} · {fmtHora(a.closed_at)}</div>
+                              <>
+                                <div className="text-[10px] text-dim">↩ {a.motivo_perda ?? a.status} · {fmtHora(a.closed_at)}</div>
+                                {isAdmin && a.status === 'devolvido' && (
+                                  <button onClick={() => restaurar(a)}
+                                    title="Desfaz a devolução: o lead volta ativo para este vendedor"
+                                    className="w-full text-xs font-semibold bg-teal/10 text-teal border border-teal/40 rounded-lg py-1.5 hover:bg-teal/20 transition">
+                                    ↩️ Devolver ao vendedor
+                                  </button>
+                                )}
+                              </>
                             )}
                             {a.status === 'ativo' && (
                               <>
