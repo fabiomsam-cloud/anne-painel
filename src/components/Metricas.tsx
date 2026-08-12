@@ -381,6 +381,7 @@ export default function Metricas() {
                   <tr className="text-[10px] font-mono text-dim uppercase tracking-widest border-b border-line">
                     <th className="text-left px-4 py-2.5">Agente</th>
                     {FUNIL_COLS.map(c => <th key={c.k} className="text-right px-3 py-2.5">{c.label}</th>)}
+                    <th className="text-right px-3 py-2.5">🛒 Links env.</th>
                     <th className="text-right px-3 py-2.5">🔗 Link pend.</th>
                     <th className="text-right px-4 py-2.5">Conv.</th>
                   </tr>
@@ -398,6 +399,12 @@ export default function Metricas() {
                           </td>
                         )
                       })}
+                      {(() => { const ce = cel(s, 'checkout_enviado'); return (
+                        <td className="px-3 py-2.5 text-right">
+                          {Number(ce.total) || <span className="text-dim/40">·</span>}
+                          {Number(ce.parados) > 0 && <span className="text-win text-[10px] font-mono ml-1" title="desses, quantos já matricularam">🏆{ce.parados}</span>}
+                        </td>
+                      )})()}
                       {(() => { const ck = cel(s, 'checkout_pendente'); return (
                         <td className="px-3 py-2.5 text-right text-gold">
                           {Number(ck.total) || <span className="text-dim/40">·</span>}
@@ -430,6 +437,7 @@ export default function Metricas() {
                 <b className="text-dim">Novo</b> = nunca respondeu · <b className="text-dim">Fases 1-4</b> = conversando com a IA (⚠ = parado +24h sem régua) ·
                 <b className="text-dim"> Régua</b> = follow-up agendado · <b className="text-dim">Dormant</b> = cadência esgotada ·
                 <b className="text-dim"> Link pend.</b> = recebeu checkout e não pagou (sobrepõe as outras colunas) ·
+                <b className="text-dim"> 🛒 Links env.</b> = leads da coorte que receberam o link de checkout (🏆 = quantos desses matricularam).
                 <b className="text-dim"> Conv.</b> = matriculados ÷ engajados (exclui quem nunca respondeu).
               </div>
             </div>
