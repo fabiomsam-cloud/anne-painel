@@ -282,6 +282,56 @@ export default function Metricas() {
         <Card titulo="Follow-ups enviados" valor={n(m.fuEnviados)} sub={`recuperados ${pct(m.fuRespondidos, m.fuEnviados)}`} />
       </div>
 
+      {/* Desempenho por agente (vw_vendas_agentes) */}
+      <div className="max-w-4xl mt-8">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-display font-semibold text-lg">Desempenho por agente</h2>
+          {agRows.length > 0 && (
+            <div className="flex gap-1 border border-line rounded-lg p-1">
+              {[...new Set(agRows.map(r => r.mes))].slice(0, 4).map(mes => (
+                <button key={mes} onClick={() => setMesSel(mes)}
+                  className={`text-xs px-3 py-1 rounded-md transition ${mesSel === mes ? 'bg-gold text-ink font-semibold' : 'text-dim hover:text-cream'}`}>
+                  {new Date(mes).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit', timeZone: 'UTC' })}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="border border-line rounded-xl overflow-x-auto bg-panel/50">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[10px] font-mono text-dim uppercase tracking-widest border-b border-line">
+                <th className="text-left px-4 py-2.5">Agente</th>
+                <th className="text-right px-3 py-2.5">🤖 IA</th>
+                <th className="text-right px-3 py-2.5">👤 Humano</th>
+                <th className="text-right px-3 py-2.5">🛡 Blindado</th>
+                <th className="text-right px-3 py-2.5">Anne</th>
+                <th className="text-right px-3 py-2.5">Valor Anne</th>
+                <th className="text-right px-3 py-2.5">📣 Influência</th>
+                <th className="text-right px-4 py-2.5">Outros canais</th>
+              </tr>
+            </thead>
+            <tbody>
+              {agRows.filter(r => r.mes === mesSel).sort((a, b) => b.vendas_anne - a.vendas_anne).map(r => (
+                <tr key={r.agent_slug} className="border-b border-line/50 last:border-0">
+                  <td className="px-4 py-2.5 font-medium">{AGENT_LABEL[r.agent_slug] ?? r.agent_slug ?? '(sem agente)'}</td>
+                  <td className="px-3 py-2.5 text-right text-teal font-semibold">{r.vendas_ia}</td>
+                  <td className="px-3 py-2.5 text-right text-gold font-semibold">{r.vendas_humano}</td>
+                  <td className="px-3 py-2.5 text-right text-gold">{r.vendas_blindado ?? 0}</td>
+                  <td className="px-3 py-2.5 text-right font-bold">{r.vendas_anne}</td>
+                  <td className="px-3 py-2.5 text-right">{r.valor_anne != null ? brl(Number(r.valor_anne)) : '—'}</td>
+                  <td className="px-3 py-2.5 text-right text-dim">{r.influenciadas_disparo}</td>
+                  <td className="px-4 py-2.5 text-right text-dim">{r.outros_canais}</td>
+                </tr>
+              ))}
+              {agRows.filter(r => r.mes === mesSel).length === 0 && (
+                <tr><td colSpan={8} className="text-center py-6 text-dim text-sm">Sem vendas registradas no mês.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* 🎯 Controle do funil por agente/etapa */}
       {(() => {
         const slugs = [...new Set(funil.map(r => r.agent_slug))]
@@ -376,55 +426,96 @@ export default function Metricas() {
         )
       })()}
 
-      {/* Desempenho por agente (vw_vendas_agentes) */}
-      <div className="max-w-4xl mt-8">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="font-display font-semibold text-lg">Desempenho por agente</h2>
-          {agRows.length > 0 && (
-            <div className="flex gap-1 border border-line rounded-lg p-1">
-              {[...new Set(agRows.map(r => r.mes))].slice(0, 4).map(mes => (
-                <button key={mes} onClick={() => setMesSel(mes)}
-                  className={`text-xs px-3 py-1 rounded-md transition ${mesSel === mes ? 'bg-gold text-ink font-semibold' : 'text-dim hover:text-cream'}`}>
-                  {new Date(mes).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit', timeZone: 'UTC' })}
-                </button>
-              ))}
+      {/* 🛡 Checkout Blindado — funil da régua */}
+      {blin && (() => {
+        const { de, ate } = rangePeriodo(periodo)
+        const dentro = (ts: string) => (!de || ts >= de) && (!ate || ts < ate)
+        const cap = blin.capturados.filter(c => dentro(c.created_at))
+        const disp = blin.disparos.filter(d => dentro(d.sent_at))
+        // convertidos por LEAD ÚNICO: o 2º toque da régua gera 2ª linha convertida
+        // do mesmo lead/fatura — contar linhas dobraria conversões e valor (10/08)
+        const porLead = new Map<string, (typeof disp)[number]>()
+        for (const d of disp.filter(x => x.status === 'convertido')) {
+          const k = d.phone_norm || d.sent_at
+          const atual = porLead.get(k)
+          if (!atual || (Number(d.valor) || 0) > (Number(atual.valor) || 0)) porLead.set(k, d)
+        }
+        const conv = [...porLead.values()]
+        const convValor = conv.reduce((s, d) => s + (Number(d.valor) || 0), 0)
+        const pausada = blin.campanhas.length > 0 && blin.campanhas.every(c => !c.ativa)
+        const porProduto = Object.values(cap.reduce((m: Record<string, any>, c) => {
+          const k = c.product_code || '(sem produto)'
+          m[k] = m[k] || { code: k, cap: 0, atk: 0, conv: 0, valor: 0 }
+          m[k].cap++
+          return m
+        }, {}))
+        for (const d of disp) {
+          const k = d.product_code || '(sem produto)'
+          const row: any = (porProduto as any[]).find(p => p.code === k)
+          if (row) row.atk++
+        }
+        for (const d of conv) {
+          const k = d.product_code || '(sem produto)'
+          const row: any = (porProduto as any[]).find(p => p.code === k)
+          if (row) { row.conv++; row.valor += Number(d.valor) || 0 }
+        }
+        return (
+          <div className="max-w-4xl mt-8">
+            <div className="flex items-center gap-3 mb-3 flex-wrap">
+              <h2 className="font-display font-semibold text-lg">🛡 Checkout Blindado</h2>
+              {pausada
+                ? <span className="text-[10px] px-2 py-0.5 rounded-full border border-gold/40 bg-gold/10 text-gold">⏸ régua PAUSADA — capturando leads, sem disparos</span>
+                : blin.campanhas.some(c => c.ativa)
+                ? <span className="text-[10px] px-2 py-0.5 rounded-full border border-teal/40 bg-teal/10 text-teal">▶ régua ativa · delay {blin.campanhas.find(c => c.ativa)?.delay_min ?? 10} min</span>
+                : null}
             </div>
-          )}
-        </div>
-        <div className="border border-line rounded-xl overflow-x-auto bg-panel/50">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-[10px] font-mono text-dim uppercase tracking-widest border-b border-line">
-                <th className="text-left px-4 py-2.5">Agente</th>
-                <th className="text-right px-3 py-2.5">🤖 IA</th>
-                <th className="text-right px-3 py-2.5">👤 Humano</th>
-                <th className="text-right px-3 py-2.5">🛡 Blindado</th>
-                <th className="text-right px-3 py-2.5">Anne</th>
-                <th className="text-right px-3 py-2.5">Valor Anne</th>
-                <th className="text-right px-3 py-2.5">📣 Influência</th>
-                <th className="text-right px-4 py-2.5">Outros canais</th>
-              </tr>
-            </thead>
-            <tbody>
-              {agRows.filter(r => r.mes === mesSel).sort((a, b) => b.vendas_anne - a.vendas_anne).map(r => (
-                <tr key={r.agent_slug} className="border-b border-line/50 last:border-0">
-                  <td className="px-4 py-2.5 font-medium">{AGENT_LABEL[r.agent_slug] ?? r.agent_slug ?? '(sem agente)'}</td>
-                  <td className="px-3 py-2.5 text-right text-teal font-semibold">{r.vendas_ia}</td>
-                  <td className="px-3 py-2.5 text-right text-gold font-semibold">{r.vendas_humano}</td>
-                  <td className="px-3 py-2.5 text-right text-gold">{r.vendas_blindado ?? 0}</td>
-                  <td className="px-3 py-2.5 text-right font-bold">{r.vendas_anne}</td>
-                  <td className="px-3 py-2.5 text-right">{r.valor_anne != null ? brl(Number(r.valor_anne)) : '—'}</td>
-                  <td className="px-3 py-2.5 text-right text-dim">{r.influenciadas_disparo}</td>
-                  <td className="px-4 py-2.5 text-right text-dim">{r.outros_canais}</td>
-                </tr>
-              ))}
-              {agRows.filter(r => r.mes === mesSel).length === 0 && (
-                <tr><td colSpan={8} className="text-center py-6 text-dim text-sm">Sem vendas registradas no mês.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              <Card titulo="Capturados no popup" valor={String(cap.length)}
+                sub={`${cap.filter(c => c.tem_fone).length} com telefone`} />
+              <Card titulo="Atacados pela régua" valor={String(disp.length)}
+                sub={`${pct(disp.length, cap.length)} dos capturados`} />
+              <Card titulo="Entregues" valor={n(blinAnne.enviados)}
+                sub={`${n(blinAnne.pulados)} pulados (opt-out/conversa ativa)`} />
+              <Card titulo="Responderam" valor={n(blinAnne.responderam)}
+                sub={`${pct(blinAnne.responderam, blinAnne.enviados)} dos entregues · ${n(blinAnne.won)} matriculados`} />
+              <Card titulo="Convertidos" valor={String(conv.length)} destaque
+                sub={convValor ? `recuperado ${brl(convValor)}` : `${pct(conv.length, disp.length)} dos atacados`} />
+            </div>
+            {(porProduto as any[]).length > 0 && (
+              <div className="border border-line rounded-xl overflow-x-auto bg-panel/50 mt-3">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[10px] font-mono text-dim uppercase tracking-widest border-b border-line">
+                      <th className="text-left px-4 py-2.5">Produto</th>
+                      <th className="text-right px-3 py-2.5">Capturados</th>
+                      <th className="text-right px-3 py-2.5">Atacados</th>
+                      <th className="text-right px-3 py-2.5">Convertidos</th>
+                      <th className="text-right px-4 py-2.5">Recuperado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(porProduto as any[]).sort((a, b) => b.cap - a.cap).map(p => (
+                      <tr key={p.code} className="border-b border-line/50 last:border-0">
+                        <td className="px-4 py-2.5 font-medium">{PROD_LABEL[p.code] ?? p.code}</td>
+                        <td className="px-3 py-2.5 text-right font-semibold">{p.cap}</td>
+                        <td className="px-3 py-2.5 text-right text-dim">{p.atk}</td>
+                        <td className="px-3 py-2.5 text-right text-win font-semibold">{p.conv}</td>
+                        <td className="px-4 py-2.5 text-right">{p.valor ? brl(p.valor) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="text-[11px] text-dim/60 mt-2 leading-relaxed">
+              <b className="text-dim">Capturados</b> = preencheram o popup pré-checkout no portal.
+              <b className="text-dim"> Atacados</b> = não compraram em {blin.campanhas[0]?.delay_min ?? 10} min e entraram na régua.
+              <b className="text-dim"> Entregues/Responderam</b> = etapa WhatsApp aqui na Anne.
+              Quem compra antes do disparo é excluído automaticamente — configuração na aba 🛡 do painel de produtos.
+            </p>
+          </div>
+        )
+      })()}
 
       {/* 💸 Custos de disparo (templates Meta) — segue o filtro de período */}
       {custos && (() => {
@@ -537,97 +628,6 @@ export default function Metricas() {
               e follow-ups fora da janela de 24h. Conversas dentro da janela são grátis.
               <b className="text-dim"> CPA</b> = custo ÷ (vendas Anne + influenciadas no período).
               <b className="text-dim"> ROI</b> = receita dessas vendas ÷ custo. Nutrição não vende por design — o retorno dela aparece no funil TJ-AM.
-            </p>
-          </div>
-        )
-      })()}
-
-      {/* 🛡 Checkout Blindado — funil da régua */}
-      {blin && (() => {
-        const { de, ate } = rangePeriodo(periodo)
-        const dentro = (ts: string) => (!de || ts >= de) && (!ate || ts < ate)
-        const cap = blin.capturados.filter(c => dentro(c.created_at))
-        const disp = blin.disparos.filter(d => dentro(d.sent_at))
-        // convertidos por LEAD ÚNICO: o 2º toque da régua gera 2ª linha convertida
-        // do mesmo lead/fatura — contar linhas dobraria conversões e valor (10/08)
-        const porLead = new Map<string, (typeof disp)[number]>()
-        for (const d of disp.filter(x => x.status === 'convertido')) {
-          const k = d.phone_norm || d.sent_at
-          const atual = porLead.get(k)
-          if (!atual || (Number(d.valor) || 0) > (Number(atual.valor) || 0)) porLead.set(k, d)
-        }
-        const conv = [...porLead.values()]
-        const convValor = conv.reduce((s, d) => s + (Number(d.valor) || 0), 0)
-        const pausada = blin.campanhas.length > 0 && blin.campanhas.every(c => !c.ativa)
-        const porProduto = Object.values(cap.reduce((m: Record<string, any>, c) => {
-          const k = c.product_code || '(sem produto)'
-          m[k] = m[k] || { code: k, cap: 0, atk: 0, conv: 0, valor: 0 }
-          m[k].cap++
-          return m
-        }, {}))
-        for (const d of disp) {
-          const k = d.product_code || '(sem produto)'
-          const row: any = (porProduto as any[]).find(p => p.code === k)
-          if (row) row.atk++
-        }
-        for (const d of conv) {
-          const k = d.product_code || '(sem produto)'
-          const row: any = (porProduto as any[]).find(p => p.code === k)
-          if (row) { row.conv++; row.valor += Number(d.valor) || 0 }
-        }
-        return (
-          <div className="max-w-4xl mt-8">
-            <div className="flex items-center gap-3 mb-3 flex-wrap">
-              <h2 className="font-display font-semibold text-lg">🛡 Checkout Blindado</h2>
-              {pausada
-                ? <span className="text-[10px] px-2 py-0.5 rounded-full border border-gold/40 bg-gold/10 text-gold">⏸ régua PAUSADA — capturando leads, sem disparos</span>
-                : blin.campanhas.some(c => c.ativa)
-                ? <span className="text-[10px] px-2 py-0.5 rounded-full border border-teal/40 bg-teal/10 text-teal">▶ régua ativa · delay {blin.campanhas.find(c => c.ativa)?.delay_min ?? 10} min</span>
-                : null}
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-              <Card titulo="Capturados no popup" valor={String(cap.length)}
-                sub={`${cap.filter(c => c.tem_fone).length} com telefone`} />
-              <Card titulo="Atacados pela régua" valor={String(disp.length)}
-                sub={`${pct(disp.length, cap.length)} dos capturados`} />
-              <Card titulo="Entregues" valor={n(blinAnne.enviados)}
-                sub={`${n(blinAnne.pulados)} pulados (opt-out/conversa ativa)`} />
-              <Card titulo="Responderam" valor={n(blinAnne.responderam)}
-                sub={`${pct(blinAnne.responderam, blinAnne.enviados)} dos entregues · ${n(blinAnne.won)} matriculados`} />
-              <Card titulo="Convertidos" valor={String(conv.length)} destaque
-                sub={convValor ? `recuperado ${brl(convValor)}` : `${pct(conv.length, disp.length)} dos atacados`} />
-            </div>
-            {(porProduto as any[]).length > 0 && (
-              <div className="border border-line rounded-xl overflow-x-auto bg-panel/50 mt-3">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-[10px] font-mono text-dim uppercase tracking-widest border-b border-line">
-                      <th className="text-left px-4 py-2.5">Produto</th>
-                      <th className="text-right px-3 py-2.5">Capturados</th>
-                      <th className="text-right px-3 py-2.5">Atacados</th>
-                      <th className="text-right px-3 py-2.5">Convertidos</th>
-                      <th className="text-right px-4 py-2.5">Recuperado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(porProduto as any[]).sort((a, b) => b.cap - a.cap).map(p => (
-                      <tr key={p.code} className="border-b border-line/50 last:border-0">
-                        <td className="px-4 py-2.5 font-medium">{PROD_LABEL[p.code] ?? p.code}</td>
-                        <td className="px-3 py-2.5 text-right font-semibold">{p.cap}</td>
-                        <td className="px-3 py-2.5 text-right text-dim">{p.atk}</td>
-                        <td className="px-3 py-2.5 text-right text-win font-semibold">{p.conv}</td>
-                        <td className="px-4 py-2.5 text-right">{p.valor ? brl(p.valor) : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            <p className="text-[11px] text-dim/60 mt-2 leading-relaxed">
-              <b className="text-dim">Capturados</b> = preencheram o popup pré-checkout no portal.
-              <b className="text-dim"> Atacados</b> = não compraram em {blin.campanhas[0]?.delay_min ?? 10} min e entraram na régua.
-              <b className="text-dim"> Entregues/Responderam</b> = etapa WhatsApp aqui na Anne.
-              Quem compra antes do disparo é excluído automaticamente — configuração na aba 🛡 do painel de produtos.
             </p>
           </div>
         )
