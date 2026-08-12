@@ -374,7 +374,7 @@ export default function Metricas() {
         const dormentes = soma('resgate')
         return (
           <div className="max-w-5xl mt-8">
-            <h2 className="font-display font-semibold text-lg mb-3">🎯 Controle do funil por agente <span className="text-dim text-xs font-normal">· coorte por chegada do lead · {labelPeriodo(periodo)}</span></h2>
+            <h2 className="font-display font-semibold text-lg mb-3">🎯 Controle do funil por agente <span className="text-dim text-xs font-normal">· etapas = leads que CHEGARAM no período · 🛒 links = ENVIADOS no período · {labelPeriodo(periodo)}</span></h2>
             <div className="border border-line rounded-xl overflow-x-auto bg-panel/50">
               <table className="w-full text-sm whitespace-nowrap">
                 <thead>
@@ -437,7 +437,7 @@ export default function Metricas() {
                 <b className="text-dim">Novo</b> = nunca respondeu · <b className="text-dim">Fases 1-4</b> = conversando com a IA (⚠ = parado +24h sem régua) ·
                 <b className="text-dim"> Régua</b> = follow-up agendado · <b className="text-dim">Dormant</b> = cadência esgotada ·
                 <b className="text-dim"> Link pend.</b> = recebeu checkout e não pagou (sobrepõe as outras colunas) ·
-                <b className="text-dim"> 🛒 Links env.</b> = leads da coorte que receberam o link de checkout (🏆 = quantos desses matricularam).
+                <b className="text-dim"> 🛒 Links env.</b> = links de checkout ENVIADOS no período — mesma conta do card acima, por agente (🏆 = quantos desses leads já matricularam).
                 <b className="text-dim"> Conv.</b> = matriculados ÷ engajados (exclui quem nunca respondeu).
               </div>
             </div>
