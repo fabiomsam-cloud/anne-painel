@@ -20,6 +20,8 @@ type Assignment = {
   conversations: { current_agent_slug: string } | null
 }
 type Atividade = { id: string; assignment_id: string; tipo: string; nota: string | null; agendada_para: string | null; created_at: string }
+// venda da Hubla casada com o card (mesma regra do motor: 1ª venda paga após a atribuição)
+type VendaCard = { produto: string | null; valor: number | null; pago_em: string | null; aluno: string | null }
 type DadosLead = { a: Assignment; ct: { name: string | null; phone: string; tags: string[]; client_memory: any; source_first: any } }
 
 const MOTIVOS = ['sem_interesse', 'sem_dinheiro_agora', 'preco', 'vai_pensar', 'concorrente', 'sem_contato', 'telefone_invalido', 'outro']
@@ -76,6 +78,7 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
   const [vendSel, setVendSel] = useState('')
   const [cards, setCards] = useState<Assignment[]>([])
   const [ativs, setAtivs] = useState<Record<string, Atividade[]>>({})
+  const [vendas, setVendas] = useState<Record<string, VendaCard>>({})
   const [devolvendo, setDevolvendo] = useState<Assignment | null>(null)
   const [motivo, setMotivo] = useState('')
   const [notaDev, setNotaDev] = useState('')
@@ -131,6 +134,28 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
       for (const a of ((at as any) ?? [])) (map[a.assignment_id] ??= []).push(a)
       setAtivs(map)
     } else setAtivs({})
+    // venda casada de cada matriculado — produto + nome do comprador p/ conferir na Hubla
+    const mats = cs.filter((c: Assignment) => c.status === 'matriculado')
+    const vs: Record<string, VendaCard> = {}
+    for (let i = 0; i < mats.length; i += 150) {
+      const lote = mats.slice(i, i + 150)
+      const { data: sl } = await supabase.from('sales')
+        .select('contact_id,product_name,amount,paid_at,created_at,raw')
+        .in('contact_id', lote.map((c: Assignment) => c.contact_id)).limit(1000)
+      const porContato: Record<string, any[]> = {}
+      for (const s of ((sl as any) ?? [])) (porContato[s.contact_id] ??= []).push(s)
+      for (const a of lote) {
+        const lista = (porContato[a.contact_id] ?? [])
+          .map((s: any) => ({ ...s, ts: s.paid_at ?? s.created_at }))
+          .sort((x: any, y: any) => String(x.ts).localeCompare(String(y.ts)))
+        const s = lista.find((x: any) => x.ts > a.assigned_at) ?? lista[lista.length - 1]
+        if (s) vs[a.id] = {
+          produto: s.product_name, valor: s.amount != null ? Number(s.amount) : null,
+          pago_em: s.ts, aluno: s.raw?.buyer || null,
+        }
+      }
+    }
+    setVendas(vs)
   }
   useEffect(() => { carregarCards() }, [vendSel])
   useEffect(() => {
@@ -367,7 +392,17 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
                               <div className="text-[10px] text-dim">{ATIV_LABEL[ult.tipo]} · {fmtHora(ult.created_at)}{ult.nota ? ` — ${ult.nota}` : ''}</div>
                             )}
                             {a.status === 'matriculado' && (
-                              <div className="text-[11px] text-win">🏆 Matriculado · {a.venda_valor ? `R$ ${Number(a.venda_valor).toLocaleString('pt-BR')}` : ''} · {fmtHora(a.closed_at)}</div>
+                              <>
+                                <div className="text-[11px] text-win">🏆 Matriculado · {a.venda_valor ? `R$ ${Number(a.venda_valor).toLocaleString('pt-BR')}` : ''} · {fmtHora(a.closed_at)}</div>
+                                {vendas[a.id]?.produto && (
+                                  <div className="text-[10px] text-dim">🎓 <span className="text-cream">{vendas[a.id].produto}</span></div>
+                                )}
+                                {vendas[a.id]?.aluno && (
+                                  <div className="text-[10px] text-dim" title="Nome do comprador na Hubla — use para conferir a fatura">
+                                    🧾 Hubla: <span className="text-cream">{vendas[a.id].aluno}</span>
+                                  </div>
+                                )}
+                              </>
                             )}
                             {(a.status === 'devolvido' || a.status === 'expirado') && (
                               <>
@@ -479,6 +514,21 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
                 </button>
               )}
             </div>
+
+            {/* venda casada — dados p/ conferir a fatura na Hubla */}
+            {dados.a.status === 'matriculado' && (
+              <div className="border border-win/30 bg-win/5 rounded-xl p-3 space-y-1.5">
+                <div className="text-[10px] font-mono text-win uppercase tracking-widest">🎓 Venda confirmada</div>
+                <div className="text-xs">Produto: <b>{vendas[dados.a.id]?.produto ?? '—'}</b></div>
+                {vendas[dados.a.id]?.aluno && (
+                  <div className="text-xs">Nome na Hubla: <b>{vendas[dados.a.id].aluno}</b></div>
+                )}
+                <div className="text-xs text-dim">
+                  {dados.a.venda_valor ? `R$ ${Number(dados.a.venda_valor).toLocaleString('pt-BR')}` : ''}
+                  {' · pago em '}{fmtHora(vendas[dados.a.id]?.pago_em ?? dados.a.closed_at)}
+                </div>
+              </div>
+            )}
 
             {/* cadência do vendedor — quantas vezes tentou, quando e o que aconteceu */}
             <div className="border border-gold/25 bg-gold/5 rounded-xl p-3 space-y-2">

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { supabase, AGENT_LABEL } from '../lib/supabase'
+import { supabase, AGENT_LABEL, fmtFone, fmtHora } from '../lib/supabase'
 
 // ============================================================
 // 📈 Métricas do Comercial Humano (admin) — layout definido pela
@@ -12,13 +12,16 @@ import { supabase, AGENT_LABEL } from '../lib/supabase'
 
 type Vendedor = { id: string; nome: string; email: string; tipo: string; ativo: boolean }
 type Ass = {
-  id: string; vendedor_id: string; conversation_id: string | null
+  id: string; vendedor_id: string; contact_id: string; conversation_id: string | null
   estrato: string; status: string; motivo_perda: string | null; venda_valor: number | null
   assigned_at: string; closed_at: string | null
+  contacts: { name: string | null; phone: string } | null
   conversations: { current_agent_slug: string } | null
 }
 type Atv = { id: string; assignment_id: string; tipo: string; agendada_para: string | null; created_at: string }
-type Janela = { cards: Ass[]; ativs: Record<string, Atv[]> }
+// venda da Hubla casada com o card (mesma regra do motor: 1ª venda paga após a atribuição)
+type VendaInfo = { produto: string | null; valor: number | null; pago_em: string | null; aluno: string | null }
+type Janela = { cards: Ass[]; ativs: Record<string, Atv[]>; vendas: Record<string, VendaInfo> }
 
 // contato real com o lead; agendamento e nota não contam como tentativa
 const TENTATIVAS = ['ligacao_atendida', 'ligacao_nao_atendida', 'whatsapp']
@@ -62,10 +65,10 @@ async function fetchAll<T>(monta: (de: number, ate: number) => any): Promise<T[]
   return out
 }
 
-async function carregarJanela(de: string | null, ate: string | null): Promise<Janela> {
+async function carregarJanela(de: string | null, ate: string | null, comVendas = false): Promise<Janela> {
   const cards = await fetchAll<Ass>((a, b) => {
     let q = supabase.from('lead_assignments')
-      .select('id,vendedor_id,conversation_id,estrato,status,motivo_perda,venda_valor,assigned_at,closed_at,conversations(current_agent_slug)')
+      .select('id,vendedor_id,contact_id,conversation_id,estrato,status,motivo_perda,venda_valor,assigned_at,closed_at,contacts(name,phone),conversations(current_agent_slug)')
       .order('assigned_at').order('id').range(a, b)
     if (de) q = q.gte('assigned_at', de)
     if (ate) q = q.lt('assigned_at', ate)
@@ -80,7 +83,30 @@ async function carregarJanela(de: string | null, ate: string | null): Promise<Ja
       .in('assignment_id', lote).order('created_at').order('id').range(a, b))
     for (const r of rows) (ativs[r.assignment_id] ??= []).push(r)
   }
-  return { cards, ativs }
+  // vendas casadas dos matriculados (produto + nome na Hubla) — só na janela exibida
+  const vendas: Record<string, VendaInfo> = {}
+  if (comVendas) {
+    const mats = cards.filter(c => c.status === 'matriculado')
+    for (let i = 0; i < mats.length; i += 150) {
+      const lote = mats.slice(i, i + 150)
+      const { data: sl } = await supabase.from('sales')
+        .select('contact_id,product_name,amount,paid_at,created_at,raw')
+        .in('contact_id', lote.map(c => c.contact_id)).limit(1000)
+      const porContato: Record<string, any[]> = {}
+      for (const s of ((sl as any) ?? [])) (porContato[s.contact_id] ??= []).push(s)
+      for (const a of lote) {
+        const lista = (porContato[a.contact_id] ?? [])
+          .map((s: any) => ({ ...s, ts: s.paid_at ?? s.created_at }))
+          .sort((x: any, y: any) => String(x.ts).localeCompare(String(y.ts)))
+        const s = lista.find((x: any) => x.ts > a.assigned_at) ?? lista[lista.length - 1]
+        if (s) vendas[a.id] = {
+          produto: s.product_name, valor: s.amount != null ? Number(s.amount) : null,
+          pago_em: s.ts, aluno: s.raw?.buyer || null,
+        }
+      }
+    }
+  }
+  return { cards, ativs, vendas }
 }
 
 // ---- agregação: uma passada pelos cards produz tudo que a tela mostra ----
@@ -178,7 +204,7 @@ function Kpi({ label, valor, children }: { label: string; valor: string; childre
 
 export default function ComercialMetricas({ vendedores }: { vendedores: Vendedor[] }) {
   const [periodo, setPeriodo] = useState<Periodo>({ tipo: 'd30', de: '', ate: '' })
-  const [janela, setJanela] = useState<Janela>({ cards: [], ativs: {} })
+  const [janela, setJanela] = useState<Janela>({ cards: [], ativs: {}, vendas: {} })
   const [janelaPrev, setJanelaPrev] = useState<Janela | null>(null)
   const [vendSel, setVendSel] = useState<Set<string>>(new Set())   // vazio = todos
   const [prodSel, setProdSel] = useState('')                        // '' = todos
@@ -190,7 +216,7 @@ export default function ComercialMetricas({ vendedores }: { vendedores: Vendedor
     const meu = ++seq.current
     setCarregando(true)
     const { de, ate } = rangePeriodo(periodo)
-    const atual = await carregarJanela(de, ate)
+    const atual = await carregarJanela(de, ate, true)
     if (seq.current !== meu) return
     setJanela(atual)
     setCarregando(false)
@@ -246,6 +272,37 @@ export default function ComercialMetricas({ vendedores }: { vendedores: Vendedor
       .sort((a, b) => b.taxa - a.taxa),
     [linhas])
   const topTaxa = ranking[0]?.taxa || 0
+
+  // vendas do período (respeitam os filtros): produto/nome vêm da venda casada da Hubla
+  const vendasLista = useMemo(() => filtra(janela.cards)
+    .filter(a => a.status === 'matriculado')
+    .map(a => {
+      const v = janela.vendas[a.id]
+      return {
+        id: a.id,
+        data: v?.pago_em ?? a.closed_at,
+        aluno: v?.aluno || a.contacts?.name || '—',
+        fone: a.contacts?.phone ?? '',
+        produto: v?.produto ?? '(venda não localizada)',
+        vendedor: vendedores.find(x => x.id === a.vendedor_id)?.nome ?? '?',
+        valor: v?.valor ?? (a.venda_valor != null ? Number(a.venda_valor) : null),
+      }
+    })
+    .sort((x, y) => String(y.data).localeCompare(String(x.data))),
+    [janela, vendSel, prodSel, vendedores])
+
+  // matriz vendedor × produto (matrículas + receita por célula)
+  const matriz = useMemo(() => {
+    const prods = [...new Set(vendasLista.map(v => v.produto))].sort()
+    const porVend: Record<string, { nome: string; cel: Record<string, { n: number; receita: number }>; n: number; receita: number }> = {}
+    for (const v of vendasLista) {
+      const linha = (porVend[v.vendedor] ??= { nome: v.vendedor, cel: {}, n: 0, receita: 0 })
+      const c = (linha.cel[v.produto] ??= { n: 0, receita: 0 })
+      c.n++; c.receita += v.valor ?? 0
+      linha.n++; linha.receita += v.valor ?? 0
+    }
+    return { prods, linhas: Object.values(porVend).sort((a, b) => b.n - a.n || b.receita - a.receita) }
+  }, [vendasLista])
 
   const tempos = [
     { label: 'Recebido → 1ª tentativa', ms: media(r.tPrimeira), cor: '#e06f6f' },
@@ -471,6 +528,76 @@ export default function ComercialMetricas({ vendedores }: { vendedores: Vendedor
               </table>
             </div>
           </section>
+
+          {/* ---- vendedor × produto + lista nominal de vendas ---- */}
+          {vendasLista.length > 0 && (
+            <>
+              <section className="border border-line bg-panel/50 rounded-xl p-4 space-y-3">
+                <div className="flex items-baseline gap-3 flex-wrap">
+                  <h2 className="font-display font-semibold">🎓 Matrículas por vendedor × produto</h2>
+                  <span className="text-[11px] text-dim">produto real da fatura na Hubla</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-[10px] font-mono text-dim uppercase tracking-wider text-left border-b border-line">
+                        <th className="py-2 pr-3">Vendedor</th>
+                        {matriz.prods.map(p => <th key={p} className="py-2 px-2 text-right">{p}</th>)}
+                        <th className="py-2 px-2 text-right text-gold">Total</th>
+                        <th className="py-2 pl-2 text-right text-gold">Receita</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {matriz.linhas.map(l => (
+                        <tr key={l.nome} className="border-b border-line/40 last:border-0">
+                          <td className="py-2.5 pr-3 font-medium">{l.nome}</td>
+                          {matriz.prods.map(p => (
+                            <td key={p} className="py-2.5 px-2 text-right font-mono">
+                              {l.cel[p] ? <>{l.cel[p].n} <span className="text-[10px] text-dim">· {fmtBRL(l.cel[p].receita)}</span></> : '—'}
+                            </td>
+                          ))}
+                          <td className="py-2.5 px-2 text-right font-mono font-bold text-win">{l.n}</td>
+                          <td className="py-2.5 pl-2 text-right font-mono font-bold">{fmtBRL(l.receita)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section className="border border-line bg-panel/50 rounded-xl p-4 space-y-3">
+                <div className="flex items-baseline gap-3 flex-wrap">
+                  <h2 className="font-display font-semibold">🧾 Vendas do período</h2>
+                  <span className="text-[11px] text-dim">
+                    {vendasLista.length} matrícula{vendasLista.length === 1 ? '' : 's'} · nome/produto da fatura — confira na Hubla
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-[10px] font-mono text-dim uppercase tracking-wider text-left border-b border-line">
+                        <th className="py-2 pr-3">Pago em</th><th className="py-2 pr-3">Aluno</th>
+                        <th className="py-2 pr-3">Telefone</th><th className="py-2 pr-3">Produto</th>
+                        <th className="py-2 pr-3">Vendedor</th><th className="py-2 text-right">Valor</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {vendasLista.map(v => (
+                        <tr key={v.id} className="border-b border-line/40 last:border-0">
+                          <td className="py-2.5 pr-3 font-mono text-xs">{fmtHora(v.data)}</td>
+                          <td className="py-2.5 pr-3 font-medium">{v.aluno}</td>
+                          <td className="py-2.5 pr-3 font-mono text-xs text-dim">{fmtFone(v.fone)}</td>
+                          <td className="py-2.5 pr-3">{v.produto}</td>
+                          <td className="py-2.5 pr-3">{v.vendedor}</td>
+                          <td className="py-2.5 text-right font-mono">{v.valor != null ? fmtBRL(v.valor) : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </>
+          )}
 
           {/* ---- ranking + tempo por etapa ---- */}
           <div className="grid md:grid-cols-2 gap-4">
