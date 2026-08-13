@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Mp3Encoder } from '@breezystack/lamejs'
 import { supabase, AGENT_LABEL, STATUS_META, PIPELINE_COLS, pipelineCol, fmtHora, fmtFone } from '../lib/supabase'
 
 type Conv = {
@@ -50,6 +51,31 @@ function ultimaEhSaida(c: Conv) {
 // conversa operada por gente: atendimento comum ou posse do Comercial Humano
 function comHumano(status: string) {
   return status === 'human' || status === 'humano_comercial'
+}
+
+// Gravação do navegador (webm/mp4) → MP3 mono, formato que a Meta aceita por link.
+// A conversão roda no envio; a prévia toca o blob original direto.
+async function blobParaMp3(blob: Blob): Promise<Blob> {
+  const ctx = new AudioContext()
+  const buf = await ctx.decodeAudioData(await blob.arrayBuffer())
+  ctx.close()
+  const n = buf.length
+  const mono = new Float32Array(n)
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const d = buf.getChannelData(c)
+    for (let i = 0; i < n; i++) mono[i] += d[i] / buf.numberOfChannels
+  }
+  const pcm = new Int16Array(n)
+  for (let i = 0; i < n; i++) pcm[i] = Math.max(-32768, Math.min(32767, Math.round(mono[i] * 32767)))
+  const enc = new Mp3Encoder(1, buf.sampleRate, 64)   // 64 kbps mono: voz limpa e arquivo pequeno
+  const partes: Uint8Array[] = []
+  for (let i = 0; i < n; i += 1152) {
+    const p = enc.encodeBuffer(pcm.subarray(i, i + 1152))
+    if (p.length) partes.push(p)
+  }
+  const fim = enc.flush()
+  if (fim.length) partes.push(fim)
+  return new Blob(partes as BlobPart[], { type: 'audio/mpeg' })
 }
 
 // quem precisa de atenção fica no topo, aberta ou fechada a janela:
@@ -247,6 +273,73 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
       phone: sel.contacts.phone, parts: [t], priority: 1,
     })
     setTexto(''); setEnviando(false)
+  }
+
+  // 🎤 áudio do atendente — grava no navegador, converte p/ MP3, sobe no bucket
+  // público e enfileira a parte {type:'audio', link}: o Sender entrega pela Meta
+  const [gravando, setGravando] = useState(false)
+  const [gravSeg, setGravSeg] = useState(0)
+  const [audioPronto, setAudioPronto] = useState<{ blob: Blob; url: string } | null>(null)
+  const gravRef = useRef<MediaRecorder | null>(null)
+  const gravTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const gravar = async () => {
+    if (!sel || !comHumano(sel.status) || gravando) return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const rec = new MediaRecorder(stream)
+      const chunks: Blob[] = []
+      rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data) }
+      rec.onstop = () => {
+        stream.getTracks().forEach(t => t.stop())
+        if ((rec as any)._descartar) return
+        const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' })
+        setAudioPronto({ blob, url: URL.createObjectURL(blob) })
+      }
+      gravRef.current = rec
+      rec.start()
+      setGravSeg(0); setGravando(true)
+      gravTimer.current = setInterval(() => setGravSeg(s => s + 1), 1000)
+    } catch {
+      setMsgTpl('⚠️ Não consegui acessar o microfone — libere a permissão do navegador e tente de novo.')
+    }
+  }
+
+  const pararGravacao = (manter: boolean) => {
+    const rec = gravRef.current
+    if (rec && rec.state !== 'inactive') { (rec as any)._descartar = !manter; rec.stop() }
+    if (gravTimer.current) clearInterval(gravTimer.current)
+    setGravando(false)
+  }
+
+  const descartarAudio = () => {
+    if (audioPronto) URL.revokeObjectURL(audioPronto.url)
+    setAudioPronto(null)
+  }
+
+  const enviarAudio = async () => {
+    if (!sel || !audioPronto || enviando) return
+    setEnviando(true)
+    try {
+      const mp3 = await blobParaMp3(audioPronto.blob)
+      const caminho = `${sel.id}/${Date.now()}.mp3`
+      const { error: eUp } = await supabase.storage.from('inbox-audio')
+        .upload(caminho, mp3, { contentType: 'audio/mpeg' })
+      if (eUp) throw eUp
+      const url = supabase.storage.from('inbox-audio').getPublicUrl(caminho).data.publicUrl
+      const { data: msg } = await supabase.from('messages').insert({
+        conversation_id: sel.id, from_type: 'human', type: 'audio',
+        content: '🎙 Áudio do atendente', status: 'queued', metadata: { audio_url: url },
+      }).select('id').single()
+      await supabase.from('send_queue').insert({
+        conversation_id: sel.id, message_id: msg?.id ?? null,
+        phone: sel.contacts.phone, parts: [{ type: 'audio', link: url }], priority: 1,
+      })
+      descartarAudio()
+    } catch (err: any) {
+      setMsgTpl('⚠️ Falha ao enviar o áudio: ' + (err?.message ?? err))
+    }
+    setEnviando(false)
   }
 
   // 📚 balão → base de conhecimento: monta pergunta+resposta e abre a gaveta
@@ -473,7 +566,14 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                   {m.metadata?.followup_step && (
                     <div className="text-[10px] font-mono text-gold/80 mb-1">⏰ follow-up · toque {m.metadata.followup_step}</div>
                   )}
-                  {m.type === 'audio' && <div className="text-[10px] font-mono text-dim mb-1">🎙 áudio transcrito</div>}
+                  {m.type === 'audio' && (
+                    <div className="text-[10px] font-mono text-dim mb-1">
+                      🎙 {m.from_type === 'human' ? 'áudio do atendente' : 'áudio transcrito'}
+                    </div>
+                  )}
+                  {m.metadata?.audio_url && (
+                    <audio controls preload="none" src={m.metadata.audio_url} className="my-1 h-9 max-w-full" />
+                  )}
                   {m.type === 'template' && (
                     <div className="text-[10px] font-mono text-teal/80 mb-1">
                       📨 template{m.metadata?.janela_reaberta ? ' · reabertura de janela' : m.metadata?.broadcast ? ' · disparo' : ''}
@@ -494,16 +594,44 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
             </div>
 
             {jan.aberta ? (
+              audioPronto ? (
+                <div className="p-4 border-t border-line flex items-center gap-2">
+                  <audio controls src={audioPronto.url} className="flex-1 h-10 min-w-0" />
+                  <button onClick={descartarAudio} title="Descartar gravação"
+                    className="text-sm text-danger/80 border border-danger/30 rounded-xl px-3 py-2.5 hover:bg-danger/10 transition">🗑</button>
+                  <button onClick={enviarAudio} disabled={enviando}
+                    className="bg-gold text-ink font-semibold rounded-xl px-4 py-2.5 text-sm disabled:opacity-40 hover:brightness-110 transition">
+                    {enviando ? 'Enviando…' : '🎤 Enviar áudio'}
+                  </button>
+                </div>
+              ) : gravando ? (
+                <div className="p-4 border-t border-line flex items-center gap-3">
+                  <span className="text-danger text-sm font-semibold pulse-danger">● Gravando</span>
+                  <span className="font-mono text-sm text-dim">
+                    {Math.floor(gravSeg / 60)}:{String(gravSeg % 60).padStart(2, '0')}
+                  </span>
+                  <div className="ml-auto flex gap-2">
+                    <button onClick={() => pararGravacao(false)}
+                      className="text-sm text-dim border border-line rounded-xl px-4 py-2.5 hover:text-danger hover:border-danger/40 transition">✕ Cancelar</button>
+                    <button onClick={() => pararGravacao(true)}
+                      className="bg-gold text-ink font-semibold rounded-xl px-4 py-2.5 text-sm hover:brightness-110 transition">✔ Parar e ouvir</button>
+                  </div>
+                </div>
+              ) : (
               <form onSubmit={enviar} className="p-4 border-t border-line flex gap-2">
                 <input value={texto} onChange={e => setTexto(e.target.value)}
                   placeholder={comHumano(sel.status) ? 'Responder como humano…' : 'Assuma a conversa para responder (IA está atendendo)'}
                   disabled={!comHumano(sel.status)}
                   className="flex-1 bg-panel border border-line rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-gold/60 disabled:opacity-40 placeholder:text-dim/50" />
+                <button type="button" onClick={gravar} disabled={!comHumano(sel.status)}
+                  title="Gravar áudio para o lead (vira nota de voz no WhatsApp)"
+                  className="border border-line text-dim rounded-xl px-3.5 text-lg disabled:opacity-30 hover:text-gold hover:border-gold/40 transition">🎤</button>
                 <button disabled={!comHumano(sel.status) || !texto.trim() || enviando}
                   className="bg-gold text-ink font-semibold rounded-xl px-5 text-sm disabled:opacity-30 hover:brightness-110 transition">
                   Enviar
                 </button>
               </form>
+              )
             ) : (
               <div className="p-4 border-t border-line space-y-2">
                 {msgTpl && <div className="rise text-xs rounded-lg border border-line bg-panel px-3 py-2">{msgTpl}</div>}
