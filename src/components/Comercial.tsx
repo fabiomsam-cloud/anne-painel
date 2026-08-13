@@ -375,16 +375,17 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
                                 )}
                               </>
                             )}
+                            {/* dossiê e conversa ficam acessíveis mesmo depois de fechar o card */}
+                            <div className="flex gap-1.5">
+                              <button onClick={() => abrirDados(a)}
+                                className="flex-1 text-xs font-semibold bg-gold/15 text-gold border border-gold/40 rounded-lg py-1.5 hover:bg-gold/25 transition">📇 Dados do lead</button>
+                              {a.conversation_id && (
+                                <button onClick={() => irParaInbox(a.conversation_id!)}
+                                  className="flex-1 text-xs font-semibold bg-teal/10 text-teal border border-teal/40 rounded-lg py-1.5 hover:bg-teal/20 transition">💬 Inbox</button>
+                              )}
+                            </div>
                             {a.status === 'ativo' && (
                               <>
-                                <div className="flex gap-1.5">
-                                  <button onClick={() => abrirDados(a)}
-                                    className="flex-1 text-xs font-semibold bg-gold/15 text-gold border border-gold/40 rounded-lg py-1.5 hover:bg-gold/25 transition">📇 Dados do lead</button>
-                                  {a.conversation_id && (
-                                    <button onClick={() => irParaInbox(a.conversation_id!)}
-                                      className="flex-1 text-xs font-semibold bg-teal/10 text-teal border border-teal/40 rounded-lg py-1.5 hover:bg-teal/20 transition">💬 Inbox</button>
-                                  )}
-                                </div>
                                 <div className="flex gap-1 flex-wrap">
                                   <button onClick={() => registrar(a, 'ligacao_atendida')}
                                     className="text-[10px] border border-line text-dim rounded-lg px-2 py-1 hover:text-win hover:border-win/40 transition">
