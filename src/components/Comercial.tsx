@@ -240,6 +240,12 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
 
   const mem = dados?.ct?.client_memory ?? {}
   const notasVendedor = dados ? (ativs[dados.a.id] ?? []).filter(x => x.tipo === 'nota' && x.nota) : []
+  // cadência em ordem cronológica (o mapa vem do banco em ordem decrescente)
+  const cadencia = dados ? [...(ativs[dados.a.id] ?? [])].filter(x => x.tipo !== 'nota').reverse() : []
+  const msPrimeira = dados && cadencia[0]
+    ? new Date(cadencia[0].created_at).getTime() - new Date(dados.a.assigned_at).getTime() : null
+  const fmtEspera = (ms: number) => ms < 86400000
+    ? `${Math.max(1, Math.round(ms / 3600000))}h` : `${(ms / 86400000).toFixed(1).replace('.', ',')}d`
   const inp = 'bg-panel border border-line rounded-lg px-3 py-2 text-sm text-cream focus:outline-none focus:border-gold/60 placeholder:text-dim/40'
 
   return (
@@ -474,6 +480,43 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
               )}
             </div>
 
+            {/* cadência do vendedor — quantas vezes tentou, quando e o que aconteceu */}
+            <div className="border border-gold/25 bg-gold/5 rounded-xl p-3 space-y-2">
+              <div className="text-[10px] font-mono text-gold uppercase tracking-widest">☎️ Cadência do vendedor</div>
+              {cadencia.length ? (
+                <>
+                  <div className="flex gap-1.5 flex-wrap font-mono text-[11px]">
+                    {([['ligacao_atendida', '📞 atendida', 'border-win/40 text-win bg-win/5'],
+                       ['ligacao_nao_atendida', '📵 não atendeu', 'border-danger/30 text-danger/90 bg-danger/5'],
+                       ['whatsapp', '💬 WhatsApp', 'border-teal/40 text-teal bg-teal/5'],
+                       ['ligacao_agendada', '🗓 agendou', 'border-gold/40 text-gold bg-gold/5']] as const)
+                      .map(([tipo, lbl, cls]) => {
+                        const n = contar(dados.a, tipo)
+                        return n > 0 && <span key={tipo} className={`px-1.5 py-0.5 rounded border ${cls}`}>{lbl} ×{n}</span>
+                      })}
+                  </div>
+                  {msPrimeira != null && (
+                    <div className="text-[11px] text-dim">
+                      1ª tentativa <b className="text-cream">{fmtEspera(msPrimeira)}</b> depois de receber o lead
+                      {dados.a.status === 'matriculado' && dados.a.closed_at && (
+                        <> · matrícula <b className="text-win">{fmtEspera(new Date(dados.a.closed_at).getTime() - new Date(dados.a.assigned_at).getTime())}</b> após a entrada</>
+                      )}
+                    </div>
+                  )}
+                  <div className="space-y-1 pt-1 border-t border-line/60">
+                    {cadencia.map(x => (
+                      <div key={x.id} className="text-[11px] text-dim flex gap-2">
+                        <span className="font-mono text-[10px] shrink-0">{fmtHora(x.created_at)}</span>
+                        <span>{ATIV_LABEL[x.tipo]}{x.agendada_para ? ` → ${fmtHora(x.agendada_para)}` : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="text-xs text-danger/90">Nenhuma tentativa registrada para este lead.</div>
+              )}
+            </div>
+
             {/* objeção em 1 clique */}
             <div>
               <div className="text-[10px] font-mono text-dim uppercase tracking-widest mb-1.5">Objeção que você ouviu (1 clique)</div>
@@ -507,19 +550,6 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
               </div>
             </div>
 
-            {/* histórico completo de tentativas */}
-            <div className="space-y-1.5">
-              <div className="text-[10px] font-mono text-dim uppercase tracking-widest">Histórico de tentativas</div>
-              {(ativs[dados.a.id] ?? []).filter(x => x.tipo !== 'nota').map(x => (
-                <div key={x.id} className="text-[11px] text-dim flex gap-2">
-                  <span className="font-mono text-[10px]">{fmtHora(x.created_at)}</span>
-                  <span>{ATIV_LABEL[x.tipo]}{x.agendada_para ? ` → ${fmtHora(x.agendada_para)}` : ''}</span>
-                </div>
-              ))}
-              {!(ativs[dados.a.id] ?? []).filter(x => x.tipo !== 'nota').length && (
-                <div className="text-[11px] text-dim/60">Nenhuma tentativa registrada.</div>
-              )}
-            </div>
           </div>
         </>
       )}
