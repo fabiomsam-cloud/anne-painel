@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase, AGENT_LABEL, fmtFone, fmtHora } from '../lib/supabase'
+import ComercialMetricas from './ComercialMetricas'
 
 // ============================================================
 // Comercial Humano — vendedores por telefone assumem leads que a
@@ -69,7 +70,7 @@ function diasRestantes(expiresAt: string) {
 
 export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId = null, meuTipo = null }:
   { irParaInbox: (convId: string) => void; isAdmin?: boolean; meuVendedorId?: string | null; meuTipo?: string | null }) {
-  const [subTab, setSubTab] = useState<'pipeline' | 'gestao'>('pipeline')
+  const [subTab, setSubTab] = useState<'pipeline' | 'metricas' | 'gestao'>('pipeline')
   const [vendedores, setVendedores] = useState<Vendedor[]>([])
   const [meuEmail, setMeuEmail] = useState('')
   const [vendSel, setVendSel] = useState('')
@@ -246,8 +247,8 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
       <div className="px-4 md:px-6 pt-4 pb-3 border-b border-line flex items-center gap-3 flex-wrap">
         <h1 className="font-display font-bold text-xl">☎️ Comercial Humano</h1>
         <div className="flex gap-1 ml-auto">
-          {([['pipeline', '📋 Pipeline'], ['gestao', '📊 Gestão']] as const)
-            .filter(([id]) => isAdmin || id !== 'gestao')
+          {([['pipeline', '📋 Pipeline'], ['metricas', '📈 Métricas'], ['gestao', '📊 Gestão']] as const)
+            .filter(([id]) => isAdmin || id === 'pipeline')
             .map(([id, lbl]) => (
             <button key={id} onClick={() => setSubTab(id)}
               className={`text-xs px-3 py-1.5 rounded-lg border transition
@@ -413,6 +414,8 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
             </div>
           )}
         </div>
+      ) : subTab === 'metricas' ? (
+        <ComercialMetricas vendedores={vendedores} />
       ) : (
         <Gestao vendedores={vendedores} recarregarVendedores={carregarVendedores} flash={flash} />
       )}
