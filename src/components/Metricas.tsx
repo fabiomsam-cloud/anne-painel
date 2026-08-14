@@ -197,8 +197,8 @@ export default function Metricas() {
       return count
     }
     ;(async () => {
-      const [leads, msgsIn, msgsIa, escAbertas, escTotal, checkouts,
-             vendasAnne, vendasDisparo, vendasExternas, fuEnviados, fuRespondidos, wonTotal, wonLista] =
+      const [leads, msgsIn, msgsIa, escAbertas, escTotal, checkouts, checkoutsFu,
+             vendasAnne, vendasCross, vendasDisparo, vendasExternas, fuEnviados, fuRespondidos, wonTotal, wonLista] =
         await Promise.all([
           count('contacts', q => per(q)),
           count('messages', q => per(q.eq('from_type', 'user'))),
@@ -206,9 +206,14 @@ export default function Metricas() {
           count('escalations', q => q.eq('status', 'open')),
           count('escalations', q => per(q)),
           count('events_outbox', q => per(q.eq('event_type', 'checkout_enviado'))),
+          // eventos antigos não têm payload.via — followup é explícito; conversa = total − followup
+          count('events_outbox', q => per(q.eq('event_type', 'checkout_enviado').eq('payload->>via', 'followup'))),
           count('sales', q => per(q.in('attribution', ANNE_ATTRS))),
+          // cross-sell: lead em conversa com um agente comprou produto de OUTRO agente
+          count('sales', q => per(q.eq('matched_by', 'phone_outro_agente'))),
           count('sales', q => per(q.eq('attribution', 'anne_disparo'))),
-          count('sales', q => per(q.eq('attribution', 'externa').neq('matched_by', 'unmatched'))),
+          count('sales', q => per(q.eq('attribution', 'externa')
+            .neq('matched_by', 'unmatched').neq('matched_by', 'phone_outro_agente'))),
           count('followup_log', q => per(q, 'sent_at')),
           count('followup_log', q => per(q.eq('replied', true), 'sent_at')),
           count('conversations', q => q.eq('status', 'won')),
@@ -217,8 +222,8 @@ export default function Metricas() {
         ])
       const wonAnne = (wonLista ?? []).filter((w: any) =>
         (w.venda && ANNE_ATTRS.includes(w.venda.attribution)) || w.matricula_manual).length
-      setM({ leads, msgsIn, msgsIa, escAbertas, escTotal, checkouts,
-             vendasAnne, vendasDisparo, vendasExternas, fuEnviados, fuRespondidos, wonTotal, wonAnne })
+      setM({ leads, msgsIn, msgsIa, escAbertas, escTotal, checkouts, checkoutsFu,
+             vendasAnne, vendasCross, vendasDisparo, vendasExternas, fuEnviados, fuRespondidos, wonTotal, wonAnne })
     })()
   }, [periodo])
 
@@ -238,7 +243,9 @@ export default function Metricas() {
     if (ate) q = q.lt('created_at', ate)
     const { data } = await q.order('paid_at', { ascending: false }).limit(300)
     const rows = ((data as any) ?? []) as Venda[]
-    rows.sort((a, b) => (ANNE_ATTRS.includes(b.attribution) ? 1 : 0) - (ANNE_ATTRS.includes(a.attribution) ? 1 : 0))
+    // Anne primeiro, depois cross-sell (outro produto), depois influência/externas
+    const peso = (v: Venda) => ANNE_ATTRS.includes(v.attribution) ? 2 : v.matched_by === 'phone_outro_agente' ? 1 : 0
+    rows.sort((a, b) => peso(b) - peso(a))
     setVendas(rows); setLista('vendas')
   }
 
@@ -285,9 +292,12 @@ export default function Metricas() {
         <Card titulo="Respostas da IA" valor={n(m.msgsIa)} sub={`taxa de resposta ${pct(m.msgsIa, m.msgsIn)}`} />
         <Card titulo="Escalações abertas" valor={n(m.escAbertas)} sub={`${n(m.escTotal)} no período`} />
         <Card titulo="Checkouts enviados" valor={n(m.checkouts)} destaque onClick={abrirCheckouts}
-          sub="clique para ver a lista por agente" />
-        <Card titulo="Vendas da Anne" valor={n(m.vendasAnne)} destaque onClick={abrirVendas}
-          sub={`+${n(m.vendasDisparo)} influência disparo · +${n(m.vendasExternas)} externas · clique p/ ver`} />
+          sub={m.checkouts == null || m.checkoutsFu == null ? 'clique para ver a lista por agente'
+            : `💬 ${m.checkouts - m.checkoutsFu} pedidos em conversa · ⏰ ${m.checkoutsFu} via follow-up · clique p/ ver`} />
+        <Card titulo="Vendas da Anne"
+          valor={m.vendasAnne == null || m.vendasCross == null ? '…' : String(m.vendasAnne + m.vendasCross)}
+          destaque onClick={abrirVendas}
+          sub={`${n(m.vendasAnne)} do agente · +${n(m.vendasCross)} outro produto · +${n(m.vendasDisparo)} influência disparo · +${n(m.vendasExternas)} externas · clique p/ ver`} />
         <Card titulo="Matriculados Anne" valor={n(m.wonAnne)} destaque onClick={abrirMatriculados}
           sub={`${n(m.wonTotal)} conversas fechadas no total · clique p/ ver`} />
         <Card titulo="Follow-ups enviados" valor={n(m.fuEnviados)} sub={`recuperados ${pct(m.fuRespondidos, m.fuEnviados)}`} />
@@ -656,6 +666,8 @@ export default function Metricas() {
         <b className="text-dim">Vendas da Anne</b> = o comprador recebeu o link de pagamento pela plataforma
         (🤖 IA ou 👤 humano que assumiu) na conversa, antes de pagar. <b className="text-dim">Influência disparo</b> =
         recebeu campanha até 7 dias antes mas comprou sem link da conversa — influência, não conversão.
+        <b className="text-dim"> Outro produto</b> = lead em conversa com um agente comprou produto
+        de OUTRO agente (cross-sell) — soma no destaque do card.
         <b className="text-dim"> Externas</b> = compraram por outro canal, mas eram contatos da Anne — ela para de
         vender para eles, sem contar o crédito.
       </p>
@@ -678,13 +690,15 @@ export default function Metricas() {
               <div className="space-y-2">
                 {vendas.map(v => (
                   <div key={v.id} className={`border rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap
-                    ${ANNE_ATTRS.includes(v.attribution) ? 'border-line bg-panel2' : 'border-line/50 bg-panel/40 opacity-70'}`}>
+                    ${ANNE_ATTRS.includes(v.attribution) || v.matched_by === 'phone_outro_agente'
+                      ? 'border-line bg-panel2' : 'border-line/50 bg-panel/40 opacity-70'}`}>
                     <div className="min-w-0">
                       <div className="text-sm font-medium truncate">{v.lead_name || fmtFone(v.lead_phone) || '(sem contato)'}</div>
                       <div className="text-[11px] text-dim truncate">{v.product_name}</div>
                     </div>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full border shrink-0 ${ATTR[v.attribution]?.cls ?? ''}`}>
-                      {ATTR[v.attribution]?.label ?? v.attribution}
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full border shrink-0 ${
+                      v.matched_by === 'phone_outro_agente' ? 'text-teal border-teal/40 bg-teal/10' : ATTR[v.attribution]?.cls ?? ''}`}>
+                      {v.matched_by === 'phone_outro_agente' ? '🔀 Outro produto' : ATTR[v.attribution]?.label ?? v.attribution}
                     </span>
                     <div className="ml-auto text-right shrink-0">
                       <div className="text-sm font-semibold">{brl(v.amount)}</div>
