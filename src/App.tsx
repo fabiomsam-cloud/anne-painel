@@ -11,6 +11,7 @@ import Disparos from './components/Disparos'
 import Config from './components/Config'
 import Equipe from './components/Equipe'
 import Comercial from './components/Comercial'
+import Sentinela, { buscarSaude, type Saude } from './components/Sentinela'
 
 const TABS = [
   { id: 'inbox', label: 'Inbox', icon: '💬' },
@@ -20,12 +21,13 @@ const TABS = [
   { id: 'agentes', label: 'Agentes', icon: '🤖' },
   { id: 'disparos', label: 'Disparos', icon: '📣' },
   { id: 'metricas', label: 'Métricas', icon: '📈' },
+  { id: 'sentinela', label: 'Sentinela', icon: '🛡️' },
   { id: 'equipe', label: 'Equipe', icon: '👥' },
   { id: 'config', label: 'Configuração', icon: '⚙️' },
 ] as const
 
 // vendedor (closer ou escalação) só enxerga a operação; o resto é de administrador
-const TABS_VENDEDOR = ['inbox', 'escalacoes', 'comercial']
+const TABS_VENDEDOR = ['inbox', 'escalacoes', 'comercial', 'sentinela']
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
@@ -34,6 +36,7 @@ export default function App() {
   const [tab, setTab] = useState<string>('inbox')
   const [escAbertas, setEscAbertas] = useState(0)
   const [convParaAbrir, setConvParaAbrir] = useState<string | null>(null)
+  const [saude, setSaude] = useState<Saude | null>(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
@@ -61,6 +64,30 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'escalations' }, contar)
       .subscribe()
     return () => { supabase.removeChannel(ch) }
+  }, [session])
+
+  // SENTINELA global: vigia a saúde em QUALQUER aba (poll 60s). Ao entrar em
+  // crítico: banner vermelho em todas as abas + notificação do navegador +
+  // título da janela sinalizado (para quem está em outra aba do browser).
+  useEffect(() => {
+    if (!session) return
+    let anterior: string | null = null
+    const vigiar = async () => {
+      const s = await buscarSaude()
+      if (!s) return
+      setSaude(s)
+      if (s.geral === 'crit' && anterior !== 'crit') {
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          const probs = s.checks.filter(c => c.status === 'crit').map(c => c.titulo).join(' · ')
+          new Notification('🔴 Anne — problema crítico', { body: probs || 'Verifique a aba Sentinela.' })
+        }
+      }
+      document.title = s.geral === 'crit' ? '🔴 Anne.IA — PROBLEMA CRÍTICO' : 'Anne.IA'
+      anterior = s.geral
+    }
+    vigiar()
+    const t = setInterval(vigiar, 60_000)
+    return () => { clearInterval(t); document.title = 'Anne.IA' }
   }, [session])
 
   if (loading) return <div className="h-full grid place-items-center text-dim font-mono text-sm">carregando…</div>
@@ -143,7 +170,18 @@ export default function App() {
       </aside>
 
       {/* Conteúdo */}
-      <main className="flex-1 min-w-0 overflow-hidden">
+      <main className="flex-1 min-w-0 overflow-hidden flex flex-col">
+        {saude?.geral === 'crit' && tab !== 'sentinela' && (
+          <button onClick={() => setTab('sentinela')}
+            className="shrink-0 w-full text-left bg-danger/15 border-b border-danger/60 px-4 py-2.5 flex items-center gap-2.5 hover:bg-danger/25 transition">
+            <span className="w-2.5 h-2.5 rounded-full bg-danger pulse-danger shrink-0" />
+            <span className="text-sm text-danger font-semibold">
+              PROBLEMA CRÍTICO: {saude.checks.filter(c => c.status === 'crit').map(c => c.titulo).join(' · ')}
+            </span>
+            <span className="ml-auto text-[11px] text-danger/80 shrink-0">abrir Sentinela →</span>
+          </button>
+        )}
+        <div className="flex-1 min-h-0">
         {tab === 'inbox' && <Inbox convInicial={convParaAbrir} aoConsumir={() => setConvParaAbrir(null)} isAdmin={papel.role === 'admin'} />}
         {tab === 'escalacoes' && <Escalacoes irParaInbox={(convId?: string) => { setConvParaAbrir(convId ?? null); setTab('inbox') }} />}
         {tab === 'kanban' && <Kanban />}
@@ -153,7 +191,9 @@ export default function App() {
         {tab === 'disparos' && <Disparos />}
         {tab === 'equipe' && <Equipe />}
         {tab === 'metricas' && <Metricas />}
+        {tab === 'sentinela' && <Sentinela />}
         {tab === 'config' && <Config />}
+        </div>
       </main>
     </div>
   )
