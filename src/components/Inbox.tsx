@@ -120,6 +120,8 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
 
   const buscaRef = useRef('')
   buscaRef.current = busca
+  const filtroAgenteRef = useRef('')
+  filtroAgenteRef.current = filtroAgente
 
   const carregarConvs = async () => {
     const SEL = 'id,status,current_agent_slug,last_message_at,last_user_message_at,read_at,contexto,contacts(id,name,phone,tags,client_memory,opted_out)'
@@ -139,14 +141,21 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
       return
     }
     // sem busca: 200 recentes + TODAS as human/comercial/won (não podem sumir num dia de disparo)
-    const [rec, fixas] = await Promise.all([
+    // + com filtro de agente ativo: TODAS as conversas daquele agente direto do banco
+    // (senão as boas-vindas antigas do onboarding saem das 200 recentes e "somem")
+    const doAgente = filtroAgenteRef.current
+      ? supabase.from('conversations').select(SEL).eq('current_agent_slug', filtroAgenteRef.current)
+          .order('last_message_at', { ascending: false, nullsFirst: false }).limit(500)
+      : Promise.resolve({ data: [] as any })
+    const [rec, fixas, agn] = await Promise.all([
       supabase.from('conversations').select(SEL)
         .order('last_message_at', { ascending: false, nullsFirst: false }).limit(200),
       supabase.from('conversations').select(SEL).in('status', ['human', 'humano_comercial', 'won'])
         .order('last_message_at', { ascending: false, nullsFirst: false }).limit(200),
+      doAgente,
     ])
     const vistos = new Set<string>()
-    const juntos = [...((rec.data as any) ?? []), ...((fixas.data as any) ?? [])]
+    const juntos = [...((rec.data as any) ?? []), ...((fixas.data as any) ?? []), ...(((agn as any).data as any) ?? [])]
       .filter((c: any) => { if (vistos.has(c.id)) return false; vistos.add(c.id); return true })
       .sort((a: any, b: any) => String(b.last_message_at ?? '').localeCompare(String(a.last_message_at ?? '')))
     setConvs(juntos as any)
@@ -161,6 +170,9 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
       .then(({ data }) => { if (data) { setSel(data as any); marcarLida(data as any) } })
     aoConsumir?.()
   }, [convInicial])
+
+  // troca de filtro de agente recarrega do banco (traz TODAS as do agente)
+  useEffect(() => { carregarConvs() }, [filtroAgente])
 
   useEffect(() => {
     carregarConvs()
