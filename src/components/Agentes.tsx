@@ -8,6 +8,7 @@ type Profile = {
 }
 type Revision = {
   id: string; campo: string; old_value: any; changed_by: string | null; created_at: string
+  label: string | null; oferta_resumo: string | null
 }
 type Doc = { id: string; title: string; doc_type: string; status: string; updated_at: string
   source: string | null; created_by: string | null; version: number }
@@ -39,6 +40,8 @@ export default function Agentes() {
   const [modo, setModo] = useState<'lista' | 'agente' | 'novo' | 'avancado'>('lista')
   const [form, setForm] = useState<any>({})
   const [revisoes, setRevisoes] = useState<Revision[]>([])
+  const [versoes, setVersoes] = useState<Revision[]>([])
+  const [novaVersao, setNovaVersao] = useState({ label: '', resumo: '' })
   const [docs, setDocs] = useState<Doc[]>([])
   const [novoDoc, setNovoDoc] = useState({ title: '', doc_type: 'faq', raw_content: '' })
   const [metodo, setMetodo] = useState('')
@@ -67,9 +70,15 @@ export default function Agentes() {
       concurso_nome: p.prompt_sections?.concurso_nome ?? '',
       ...Object.fromEntries(SECOES.map(s => [s.key, p.prompt_sections?.[s.key] ?? ''])),
     })
+    const { data: v } = await supabase.from('prompt_revisions')
+      .select('id,campo,old_value,changed_by,created_at,label,oferta_resumo')
+      .eq('agent_slug', p.slug).eq('campo', 'versao_nomeada')
+      .order('created_at', { ascending: false }).limit(20)
+    setVersoes((v as any) ?? [])
     const { data: r } = await supabase.from('prompt_revisions')
-      .select('id,campo,old_value,changed_by,created_at')
-      .eq('agent_slug', p.slug).order('created_at', { ascending: false }).limit(10)
+      .select('id,campo,old_value,changed_by,created_at,label,oferta_resumo')
+      .eq('agent_slug', p.slug).neq('campo', 'versao_nomeada')
+      .order('created_at', { ascending: false }).limit(10)
     setRevisoes((r as any) ?? [])
     const { data: d } = await supabase.from('knowledge_documents')
       .select('id,title,doc_type,status,updated_at,source,created_by,version')
@@ -105,11 +114,27 @@ export default function Agentes() {
 
   const restaurar = async (r: Revision) => {
     if (!sel || !r.old_value) return
-    if (!window.confirm('Restaurar as seções desta versão? A versão atual fica no histórico.')) return
-    await supabase.from('agent_profiles').update({ prompt_sections: r.old_value }).eq('id', sel.id)
-    flash('Versão restaurada.')
+    const aviso = r.campo === 'versao_nomeada'
+      ? `Restaurar a versão "${r.label ?? 'sem nome'}"? Prompt, valores da oferta e link de matrícula voltam ao que eram nessa versão. A configuração atual fica no histórico automático.`
+      : 'Restaurar as seções desta versão? A versão atual fica no histórico.'
+    if (!window.confirm(aviso)) return
+    const { error } = await supabase.rpc('fn_restaurar_versao', { p_revision_id: r.id })
+    if (error) return flash('Erro: ' + error.message)
+    flash('Versão restaurada — já vale na próxima mensagem.')
     const { data } = await supabase.from('agent_profiles').select('*').eq('id', sel.id).single()
     if (data) abrirAgente(data as Profile)
+  }
+
+  const salvarVersaoNomeada = async () => {
+    if (!sel) return
+    if (!novaVersao.label.trim()) return flash('Dê um nome para a versão.')
+    const { error } = await supabase.rpc('fn_salvar_versao', {
+      p_slug: sel.slug, p_label: novaVersao.label.trim(), p_resumo: novaVersao.resumo.trim() || null,
+    })
+    if (error) return flash('Erro: ' + error.message)
+    setNovaVersao({ label: '', resumo: '' })
+    flash('Versão salva! Prompt, oferta e link desta configuração ficaram guardados com esse nome.')
+    abrirAgente(sel)
   }
 
   const [docEdit, setDocEdit] = useState<{ id: string; title: string; doc_type: string; raw_content: string; version: number } | null>(null)
@@ -439,8 +464,43 @@ export default function Agentes() {
         </button>
       </section>
 
-      <section className="border border-line bg-panel/50 rounded-xl p-4 space-y-2">
+      <section className="border border-line bg-panel/50 rounded-xl p-4 space-y-3">
         <h2 className="font-display font-semibold">Histórico de versões</h2>
+        <p className="text-[11px] text-dim/70">Salve a configuração atual (prompt + valores da oferta + link) com um nome antes de trocar a oferta — depois é só restaurar com 1 clique.</p>
+
+        <div className="border border-gold/30 bg-gold/5 rounded-xl p-3 space-y-2">
+          <div className="grid grid-cols-2 gap-3">
+            <input className={inp} placeholder='Nome da versão (ex.: "Oferta Aniversário Agosto")'
+              value={novaVersao.label} onChange={e => setNovaVersao({ ...novaVersao, label: e.target.value })} />
+            <input className={inp} placeholder="Resumo da oferta (ex.: cartão 12x R$ 159,77 · pix 10x R$ 199,70)"
+              value={novaVersao.resumo} onChange={e => setNovaVersao({ ...novaVersao, resumo: e.target.value })} />
+          </div>
+          <button onClick={salvarVersaoNomeada}
+            className="bg-gold text-ink font-semibold rounded-lg px-4 py-2 text-sm hover:brightness-110 transition">
+            💾 Salvar versão atual com este nome
+          </button>
+        </div>
+
+        {versoes.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-[11px] text-dim uppercase tracking-wide">Versões nomeadas</div>
+            {versoes.map(r => (
+              <div key={r.id} className="border border-gold/25 bg-panel/30 rounded-lg px-3 py-2 flex items-start gap-3 text-sm">
+                <div className="min-w-0">
+                  <div className="font-semibold text-cream truncate">🏷 {r.label ?? 'sem nome'}</div>
+                  {r.oferta_resumo && <div className="text-[12px] text-dim">{r.oferta_resumo}</div>}
+                  <div className="font-mono text-[10px] text-dim/60 mt-0.5">{fmtHora(r.created_at)} · {r.changed_by ?? '—'}</div>
+                </div>
+                <button onClick={() => restaurar(r)}
+                  className="ml-auto shrink-0 text-[11px] text-gold border border-gold/40 rounded-lg px-2.5 py-1 hover:bg-gold/10 transition">
+                  ↩ Restaurar
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="text-[11px] text-dim uppercase tracking-wide pt-1">Alterações automáticas (últimas 10)</div>
         {revisoes.length === 0 && <div className="text-sm text-dim">Nenhuma alteração registrada ainda.</div>}
         {revisoes.map(r => (
           <div key={r.id} className="flex items-center gap-3 text-sm border border-line/60 bg-panel/30 rounded-lg px-3 py-2">
