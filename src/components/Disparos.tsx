@@ -303,7 +303,7 @@ export default function Disparos() {
 
       <div className="border border-teal/30 bg-teal/5 rounded-xl p-4 text-xs text-dim leading-relaxed">
         ✅ <b className="text-teal">Disparo OFICIAL (Meta Cloud API)</b> — templates aprovados, sem risco de banimento.
-        A Meta cobra por mensagem de marketing (~R$ 0,35–0,60). O lead que responder (ou tocar num botão) cai direto
+        A Meta cobra por mensagem de marketing (R$ 0,43/msg com impostos). O lead que responder (ou tocar num botão) cai direto
         no agente da campanha — escolha <b className="text-cream">Triagem (roteador)</b> quando a lista for mista e a
         Anne deva descobrir o concurso na conversa. Boas práticas: 2–3 templates rotacionados, listas de leads que
         conhecem o Grupo SOU, e taxa de resposta baixa (&lt;10%) = pause e melhore o template — protege a qualidade
