@@ -183,7 +183,7 @@ export default function App() {
         )}
         <div className="flex-1 min-h-0">
         {tab === 'inbox' && <Inbox convInicial={convParaAbrir} aoConsumir={() => setConvParaAbrir(null)} isAdmin={papel.role === 'admin'} />}
-        {tab === 'escalacoes' && <Escalacoes irParaInbox={(convId?: string) => { setConvParaAbrir(convId ?? null); setTab('inbox') }} />}
+        {tab === 'escalacoes' && <Escalacoes irParaInbox={(convId?: string) => { setConvParaAbrir(convId ?? null); setTab('inbox') }} isAdmin={papel.role === 'admin'} />}
         {tab === 'kanban' && <Kanban />}
         {tab === 'comercial' && <Comercial irParaInbox={(convId: string) => { setConvParaAbrir(convId); setTab('inbox') }}
           isAdmin={papel.role === 'admin'} meuVendedorId={papel.vendedor_id ?? null} meuTipo={papel.tipo ?? null} />}

@@ -13,7 +13,7 @@ import ComercialMetricas from './ComercialMetricas'
 type Vendedor = { id: string; nome: string; email: string; telefone: string | null; tipo: string; ativo: boolean }
 type Corte = { id: string; inicio: string; fim: string; teto_padrao: number; overrides: Record<string, number>; status: string }
 type Assignment = {
-  id: string; corte_id: string; vendedor_id: string; contact_id: string; conversation_id: string | null
+  id: string; corte_id: string | null; vendedor_id: string; contact_id: string; conversation_id: string | null
   estrato: string; status: string; motivo_perda: string | null; venda_valor: number | null
   assigned_at: string; expires_at: string; closed_at: string | null
   contacts: { name: string | null; phone: string; source_first: any } | null

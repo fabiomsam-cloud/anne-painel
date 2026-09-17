@@ -7,9 +7,18 @@ type Esc = {
   conversations: { id: string; status: string; contacts: { name: string | null; phone: string } }
 }
 
-export default function Escalacoes({ irParaInbox }: { irParaInbox: (convId?: string) => void }) {
+type Vendedor = { id: string; nome: string; tipo: string; ativo: boolean }
+
+export default function Escalacoes({ irParaInbox, isAdmin = false }:
+  { irParaInbox: (convId?: string) => void; isAdmin?: boolean }) {
   const [escs, setEscs] = useState<Esc[]>([])
   const [mostrarResolvidas, setMostrarResolvidas] = useState(false)
+  // "Enviar para Comercial" (só admin): escolhe o vendedor → RPC fn_enviar_para_comercial (migration 33)
+  const [vendedores, setVendedores] = useState<Vendedor[]>([])
+  const [enviando, setEnviando] = useState<Esc | null>(null)
+  const [vendEscolhido, setVendEscolhido] = useState('')
+  const [enviandoBusy, setEnviandoBusy] = useState(false)
+  const [aviso, setAviso] = useState('')
 
   const carregar = async () => {
     const { data } = await supabase
@@ -19,6 +28,12 @@ export default function Escalacoes({ irParaInbox }: { irParaInbox: (convId?: str
       .limit(100)
     setEscs((data as any) ?? [])
   }
+
+  useEffect(() => {
+    if (!isAdmin) return
+    supabase.from('vendedores').select('id,nome,tipo,ativo').eq('ativo', true).order('nome')
+      .then(({ data }) => setVendedores((data as any) ?? []))
+  }, [isAdmin])
 
   useEffect(() => {
     carregar()
@@ -45,6 +60,22 @@ export default function Escalacoes({ irParaInbox }: { irParaInbox: (convId?: str
     if (devolverIa) await supabase.from('conversations').update({ status: 'ia' }).eq('id', e.conversations.id)
   }
 
+  // lead vira card ATIVO do vendedor (coluna Recebidos), conversa → humano_comercial,
+  // vendedor vira responsável, escalação encerra com nota. Tudo atômico no banco.
+  const enviarParaComercial = async () => {
+    if (!enviando || !vendEscolhido || enviandoBusy) return
+    setEnviandoBusy(true)
+    const { data, error } = await supabase.rpc('fn_enviar_para_comercial', {
+      p_escalation_id: enviando.id, p_vendedor_id: vendEscolhido,
+    })
+    setEnviandoBusy(false)
+    const r = (data as any) ?? {}
+    if (error || !r.ok) { setAviso('⚠️ ' + (error?.message || r.erro || 'Falha ao enviar.')); return }
+    setAviso(`✅ ${enviando.conversations?.contacts?.name || fmtFone(enviando.conversations?.contacts?.phone)} enviado para ${r.vendedor} — já está em "Recebidos" na aba ☎️ Comercial.`)
+    setEnviando(null); setVendEscolhido('')
+    carregar()
+  }
+
   const lista = escs.filter(e => mostrarResolvidas || e.status !== 'resolved')
   const minutosAberta = (e: Esc) => Math.round((Date.now() - new Date(e.created_at).getTime()) / 60000)
 
@@ -58,6 +89,13 @@ export default function Escalacoes({ irParaInbox }: { irParaInbox: (convId?: str
           mostrar resolvidas
         </label>
       </div>
+
+      {aviso && (
+        <div className="rise max-w-3xl mb-4 text-xs rounded-lg border border-line bg-panel px-3 py-2 flex items-center gap-3">
+          <span className="flex-1">{aviso}</span>
+          <button onClick={() => setAviso('')} className="text-dim hover:text-cream">✕</button>
+        </div>
+      )}
 
       <div className="space-y-3 max-w-3xl">
         {lista.map(e => (
@@ -108,12 +146,54 @@ export default function Escalacoes({ irParaInbox }: { irParaInbox: (convId?: str
                       className="text-xs font-semibold bg-win/10 text-win border border-win/40 rounded-lg px-3 py-1.5 hover:bg-win/20 transition">
                       ✓ Encerrar
                     </button>
+                    {isAdmin && (
+                      <button onClick={() => { setEnviando(e); setVendEscolhido('') }}
+                        title="Escolher um vendedor: o lead vira card dele no Comercial Humano (coluna Recebidos) e ele passa a ser o responsável"
+                        className="text-xs font-semibold bg-gold/10 text-gold border border-gold/40 rounded-lg px-3 py-1.5 hover:bg-gold/20 transition">
+                        ☎️ Enviar para Comercial
+                      </button>
+                    )}
                   </>
                 )}
               </div>
             </div>
           </div>
         ))}
+        {enviando && (
+          <div className="fixed inset-0 z-50 bg-black/60 grid place-items-center p-4" onClick={() => !enviandoBusy && setEnviando(null)}>
+            <div className="rise w-full max-w-md bg-panel border border-line rounded-2xl p-5 space-y-4" onClick={ev => ev.stopPropagation()}>
+              <div>
+                <div className="font-display font-semibold text-lg">☎️ Enviar para Comercial</div>
+                <div className="text-sm text-dim mt-1">
+                  <b className="text-cream">{enviando.conversations?.contacts?.name || fmtFone(enviando.conversations?.contacts?.phone)}</b>
+                  {' '}vira card do vendedor na coluna <b className="text-cream">Recebidos</b>, com posse de 14 dias.
+                  O vendedor passa a ser o responsável e a escalação é encerrada.
+                </div>
+              </div>
+              <label className="block">
+                <span className="text-[10px] font-mono text-dim uppercase tracking-widest">Vendedor</span>
+                <select value={vendEscolhido} onChange={ev => setVendEscolhido(ev.target.value)} autoFocus
+                  className="mt-1 w-full bg-panel2 border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gold/60">
+                  <option value="">Escolha…</option>
+                  {vendedores.map(v => (
+                    <option key={v.id} value={v.id}>{v.nome}{v.tipo === 'escalacao' ? ' (escalação)' : ''}</option>
+                  ))}
+                </select>
+                {vendedores.length === 0 && (
+                  <div className="text-xs text-danger mt-1">Nenhum vendedor ativo — cadastre na aba ☎️ Comercial › Gestão.</div>
+                )}
+              </label>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setEnviando(null)} disabled={enviandoBusy}
+                  className="text-xs text-dim border border-line rounded-lg px-3 py-1.5 hover:text-cream transition">Cancelar</button>
+                <button onClick={enviarParaComercial} disabled={!vendEscolhido || enviandoBusy}
+                  className="text-xs font-semibold bg-gold text-ink rounded-lg px-4 py-1.5 hover:brightness-110 transition disabled:opacity-40">
+                  {enviandoBusy ? 'Enviando…' : 'Enviar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {lista.length === 0 && (
           <div className="text-center py-16 text-dim">
             <div className="text-4xl mb-3">✅</div>
