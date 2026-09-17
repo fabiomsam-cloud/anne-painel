@@ -4,7 +4,7 @@ import { supabase, AGENT_LABEL, STATUS_META, PIPELINE_COLS, pipelineCol, fmtHora
 
 type Conv = {
   id: string; status: string; current_agent_slug: string; last_message_at: string | null
-  last_user_message_at: string | null; read_at: string | null
+  last_user_message_at: string | null; read_at: string | null; responsavel_email: string | null
   contexto: any
   contacts: { id: string; name: string | null; phone: string; tags: string[]; client_memory: any; opted_out: boolean }
 }
@@ -93,9 +93,15 @@ const FROM_STYLE: Record<string, string> = {
   system: 'self-center bg-panel border-line text-dim text-xs',
 }
 
+type Vendedor = { id: string; nome: string; email: string; tipo: string; ativo: boolean }
+
 export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
   { convInicial?: string | null; aoConsumir?: () => void; isAdmin?: boolean } = {}) {
   const [convs, setConvs] = useState<Conv[]>([])
+  // filtro "Vendedor": responsável humano da conversa (conversations.responsavel_email — migration 32)
+  const [vendedores, setVendedores] = useState<Vendedor[]>([])
+  const [meuEmail, setMeuEmail] = useState('')
+  const [filtroResp, setFiltroResp] = useState('')   // '' = todos · 'sem' = sem responsável · e-mail
   const [sel, setSel] = useState<Conv | null>(null)
   const [msgs, setMsgs] = useState<Msg[]>([])
   const [filtroAgente, setFiltroAgente] = useState('')
@@ -122,9 +128,18 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
   buscaRef.current = busca
   const filtroAgenteRef = useRef('')
   filtroAgenteRef.current = filtroAgente
+  const filtroRespRef = useRef('')
+  filtroRespRef.current = filtroResp
+
+  // nome curto de quem cuida da conversa: vendedor cadastrado → nome; admin → parte local do e-mail
+  const nomeResp = (email: string | null | undefined) => {
+    if (!email) return ''
+    const v = vendedores.find(v => v.email.toLowerCase() === email.toLowerCase())
+    return v?.nome ?? email.split('@')[0]
+  }
 
   const carregarConvs = async () => {
-    const SEL = 'id,status,current_agent_slug,last_message_at,last_user_message_at,read_at,contexto,contacts(id,name,phone,tags,client_memory,opted_out)'
+    const SEL = 'id,status,current_agent_slug,last_message_at,last_user_message_at,read_at,responsavel_email,contexto,contacts(id,name,phone,tags,client_memory,opted_out)'
     const q = buscaRef.current.trim()
     if (q) {
       // busca no BANCO (nome/telefone), não só nas 200 carregadas
@@ -147,15 +162,23 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
       ? supabase.from('conversations').select(SEL).eq('current_agent_slug', filtroAgenteRef.current)
           .order('last_message_at', { ascending: false, nullsFirst: false }).limit(500)
       : Promise.resolve({ data: [] as any })
-    const [rec, fixas, agn] = await Promise.all([
+    // + com filtro de vendedor ativo: TODAS as conversas daquele responsável direto do banco
+    const fr = filtroRespRef.current
+    const doResp = fr && fr !== 'sem'
+      ? supabase.from('conversations').select(SEL).ilike('responsavel_email', fr)
+          .order('last_message_at', { ascending: false, nullsFirst: false }).limit(500)
+      : Promise.resolve({ data: [] as any })
+    const [rec, fixas, agn, rsp] = await Promise.all([
       supabase.from('conversations').select(SEL)
         .order('last_message_at', { ascending: false, nullsFirst: false }).limit(200),
       supabase.from('conversations').select(SEL).in('status', ['human', 'humano_comercial', 'won'])
         .order('last_message_at', { ascending: false, nullsFirst: false }).limit(200),
       doAgente,
+      doResp,
     ])
     const vistos = new Set<string>()
-    const juntos = [...((rec.data as any) ?? []), ...((fixas.data as any) ?? []), ...(((agn as any).data as any) ?? [])]
+    const juntos = [...((rec.data as any) ?? []), ...((fixas.data as any) ?? []), ...(((agn as any).data as any) ?? []),
+      ...(((rsp as any).data as any) ?? [])]
       .filter((c: any) => { if (vistos.has(c.id)) return false; vistos.add(c.id); return true })
       .sort((a: any, b: any) => String(b.last_message_at ?? '').localeCompare(String(a.last_message_at ?? '')))
     setConvs(juntos as any)
@@ -165,14 +188,21 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
   useEffect(() => {
     if (!convInicial) return
     supabase.from('conversations')
-      .select('id,status,current_agent_slug,last_message_at,last_user_message_at,read_at,contexto,contacts(id,name,phone,tags,client_memory,opted_out)')
+      .select('id,status,current_agent_slug,last_message_at,last_user_message_at,read_at,responsavel_email,contexto,contacts(id,name,phone,tags,client_memory,opted_out)')
       .eq('id', convInicial).single()
       .then(({ data }) => { if (data) { setSel(data as any); marcarLida(data as any) } })
     aoConsumir?.()
   }, [convInicial])
 
-  // troca de filtro de agente recarrega do banco (traz TODAS as do agente)
-  useEffect(() => { carregarConvs() }, [filtroAgente])
+  // troca de filtro de agente/vendedor recarrega do banco (traz TODAS as do agente/vendedor)
+  useEffect(() => { carregarConvs() }, [filtroAgente, filtroResp])
+
+  // roster de vendedores (nomes do filtro) + quem sou eu (opção "Minhas conversas")
+  useEffect(() => {
+    supabase.from('vendedores').select('id,nome,email,tipo,ativo').order('nome')
+      .then(({ data }) => setVendedores((data as any) ?? []))
+    supabase.auth.getUser().then(({ data }) => setMeuEmail((data.user?.email ?? '').toLowerCase()))
+  }, [])
 
   useEffect(() => {
     carregarConvs()
@@ -239,10 +269,27 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
     await supabase.from('conversations').update({ read_at: ts }).eq('id', c.id)
   }
 
+  // ✋ Assumir = vira responsável pela conversa (quem já tinha dono mantém, salvo troca explícita)
   const assumir = async () => {
     if (!sel) return
-    await supabase.from('conversations').update({ status: 'human' }).eq('id', sel.id)
-    setSel({ ...sel, status: 'human' })
+    const resp = sel.responsavel_email || meuEmail || null
+    await supabase.from('conversations').update({ status: 'human', responsavel_email: resp }).eq('id', sel.id)
+    setSel({ ...sel, status: 'human', responsavel_email: resp })
+  }
+
+  // seletor "Responsável" no cabeçalho: qualquer pessoa do time pode passar a conversa p/ outro vendedor
+  const trocarResponsavel = async (email: string) => {
+    if (!sel) return
+    const resp = email || null
+    await supabase.from('conversations').update({ responsavel_email: resp }).eq('id', sel.id)
+    setSel({ ...sel, responsavel_email: resp })
+  }
+
+  // 1ª mensagem humana numa conversa sem dono carimba quem respondeu
+  const carimbarResponsavel = async () => {
+    if (!sel || sel.responsavel_email || !meuEmail) return
+    await supabase.from('conversations').update({ responsavel_email: meuEmail }).eq('id', sel.id)
+    setSel(s => (s && s.id === sel.id ? { ...s, responsavel_email: meuEmail } : s))
   }
 
   const devolverIA = async () => {
@@ -284,6 +331,7 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
       conversation_id: sel.id, message_id: msg?.id ?? null,
       phone: sel.contacts.phone, parts: [t], priority: 1,
     })
+    carimbarResponsavel()
     setTexto(''); setEnviando(false)
   }
 
@@ -347,6 +395,7 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
         conversation_id: sel.id, message_id: msg?.id ?? null,
         phone: sel.contacts.phone, parts: [{ type: 'audio', link: url }], priority: 1,
       })
+      carimbarResponsavel()
       descartarAudio()
     } catch (err: any) {
       setMsgTpl('⚠️ Falha ao enviar o áudio: ' + (err?.message ?? err))
@@ -422,6 +471,8 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
     if (filtroAgente && c.current_agent_slug !== filtroAgente) return false
     if (filtroStatus && c.status !== filtroStatus) return false
     if (filtroEtapa && pipelineCol(c) !== filtroEtapa) return false
+    if (filtroResp === 'sem' && c.responsavel_email) return false
+    if (filtroResp && filtroResp !== 'sem' && (c.responsavel_email ?? '').toLowerCase() !== filtroResp) return false
     if (filtroJanela && (janela(c, agora).aberta ? 'aberta' : 'fechada') !== filtroJanela) return false
     if (soNaoLidas && !naoLida(c)) return false
     return true
@@ -455,11 +506,23 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
               {Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
           </div>
-          <select value={filtroEtapa} onChange={e => setFiltroEtapa(e.target.value)}
-            className="w-full bg-panel border border-line rounded-lg px-2 py-1.5 text-xs text-dim focus:outline-none">
-            <option value="">Todas etapas do pipeline</option>
-            {PIPELINE_COLS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-          </select>
+          <div className="flex gap-2">
+            <select value={filtroEtapa} onChange={e => setFiltroEtapa(e.target.value)}
+              className="flex-1 min-w-0 bg-panel border border-line rounded-lg px-2 py-1.5 text-xs text-dim focus:outline-none">
+              <option value="">Todas etapas do pipeline</option>
+              {PIPELINE_COLS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+            </select>
+            <select value={filtroResp} onChange={e => setFiltroResp(e.target.value)} title="Responsável humano pela conversa"
+              className={`flex-1 min-w-0 bg-panel border rounded-lg px-2 py-1.5 text-xs focus:outline-none
+                ${filtroResp ? 'border-gold/60 text-cream' : 'border-line text-dim'}`}>
+              <option value="">Todos vendedores</option>
+              {meuEmail && <option value={meuEmail}>👤 Minhas conversas</option>}
+              {vendedores.filter(v => v.ativo && v.email.toLowerCase() !== meuEmail).map(v => (
+                <option key={v.id} value={v.email.toLowerCase()}>{v.nome}</option>
+              ))}
+              <option value="sem">Sem responsável</option>
+            </select>
+          </div>
           <div className="flex gap-1.5 items-center">
             <span className="text-[10px] font-mono text-dim uppercase tracking-widest mr-1">Janela 24h</span>
             {([['', 'Todas'], ['aberta', '🟢 Aberta'], ['fechada', '🔴 Fechada']] as const).map(([v, lbl]) => (
@@ -504,6 +567,11 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                 {etapa && (
                   <span className={`text-[10px] px-1.5 py-0.5 rounded border ${etapa.cls}`}>{etapa.label}</span>
                 )}
+                {c.responsavel_email && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded border border-line text-dim" title={c.responsavel_email}>
+                    👤 {nomeResp(c.responsavel_email)}
+                  </span>
+                )}
                 {unread ? (
                   <span className="text-[10px] px-1.5 py-0.5 rounded border border-teal/50 text-teal bg-teal/10">💬 lead respondeu</span>
                 ) : comHumano(c.status) && c.last_user_message_at ? (
@@ -544,6 +612,22 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                 {jan.aberta ? `🕐 ${jan.label}` : '🔒 Janela fechada'}
               </span>
               <div className="ml-auto flex items-center gap-2">
+                <select value={(sel.responsavel_email ?? '').toLowerCase()} onChange={e => trocarResponsavel(e.target.value)}
+                  title="Responsável humano pela conversa — quem a encontra no filtro Vendedor"
+                  className={`hidden md:block max-w-[150px] bg-panel border rounded-lg px-2 py-1.5 text-[11px] focus:outline-none
+                    ${sel.responsavel_email ? 'border-line text-cream' : 'border-line text-dim'}`}>
+                  <option value="">👤 Sem responsável</option>
+                  {sel.responsavel_email && !vendedores.some(v => v.email.toLowerCase() === sel.responsavel_email!.toLowerCase())
+                    && sel.responsavel_email.toLowerCase() !== meuEmail && (
+                    <option value={sel.responsavel_email.toLowerCase()}>👤 {nomeResp(sel.responsavel_email)}</option>
+                  )}
+                  {meuEmail && !vendedores.some(v => v.email.toLowerCase() === meuEmail) && (
+                    <option value={meuEmail}>👤 {nomeResp(meuEmail)} (eu)</option>
+                  )}
+                  {vendedores.filter(v => v.ativo || v.email.toLowerCase() === (sel.responsavel_email ?? '').toLowerCase()).map(v => (
+                    <option key={v.id} value={v.email.toLowerCase()}>👤 {v.nome}{v.email.toLowerCase() === meuEmail ? ' (eu)' : ''}</option>
+                  ))}
+                </select>
                 <button onClick={() => setInfoAberto(true)} title="Dados do lead"
                   className="xl:hidden text-xs text-dim border border-line rounded-lg px-2.5 py-1.5 hover:text-cream transition">ℹ️</button>
                 {sel.status === 'humano_comercial' ? (
