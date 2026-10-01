@@ -16,6 +16,9 @@ type Template = { name: string; body: string; buttons: string[]; category: strin
 
 const TEMPLATES_URL = 'https://workflows.manager03.scvpgti.com.br/webhook/anne/meta/templates'
 const SEND_TPL_URL = 'https://workflows.manager03.scvpgti.com.br/webhook/anne/meta/send-template'
+// template de retomada validado pelos vendedores (41% de resposta) — único que o vendedor vê;
+// admin vê todos, com ele no topo
+const TPL_RETOMADA = 'humano_retomada_contato1'
 const JANELA_MS = 24 * 60 * 60 * 1000
 
 // janela de 24h da Meta: aberta enquanto a ÚLTIMA mensagem do lead tem < 24h
@@ -219,7 +222,12 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
     if (!sel || tpls.length) return
     if (janela(sel, agora).aberta) return
     fetch(TEMPLATES_URL).then(r => r.json())
-      .then(d => setTpls(d.templates ?? []))
+      .then(d => {
+        const todos: Template[] = d.templates ?? []
+        const ret = todos.filter(t => t.name === TPL_RETOMADA)
+        setTpls(isAdmin ? [...ret, ...todos.filter(t => t.name !== TPL_RETOMADA)] : ret)
+        if (!isAdmin && ret.length) setSelTplName(TPL_RETOMADA)
+      })
       .catch(() => setTpls([]))
   }, [sel?.id])
 
@@ -754,7 +762,8 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                     </div>
                     {selTplName && (
                       <div className="text-[11px] text-dim border border-teal/25 bg-teal/5 rounded-lg px-3 py-2 whitespace-pre-wrap">
-                        {(tpls.find(t => t.name === selTplName)?.body ?? '').split('{{1}}').join(primeiroNome)}
+                        {(tpls.find(t => t.name === selTplName)?.body ?? '').split('{{1}}').join(primeiroNome)
+                          .split('{{2}}').join('Anne').split('{{3}}').join('[concurso do agente]')}
                       </div>
                     )}
                   </>
