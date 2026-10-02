@@ -722,6 +722,7 @@ function Gestao({ vendedores, recarregarVendedores, flash }:
     const rows = await fetchAll<Assignment>((de, ate) =>
       supabase.from('lead_assignments').select('*,contacts(name,phone,source_first),conversations(current_agent_slug)')
         .gte('assigned_at', ini).lt('assigned_at', fim)
+        .neq('status', 'agendado')   // saiu para o 🗓 Agendamento: fora do pipeline e das taxas
         .order('assigned_at').range(de, ate))
     setAssMes(rows)
     const ids = rows.map(r => r.id)
