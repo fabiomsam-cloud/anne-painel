@@ -21,7 +21,7 @@ const linhas = [
   ag({ data: maisDias(hoje, -10), status: 'nao_cumpriu', ativado_em: 'x', templates: 2 }),
 ]
 ;(supabase as any).rpc = async (fn: string) => fn === 'fn_agendamento_painel'
-  ? { data: { hoje, ini: maisDias(hoje, -30), fim: hoje, tarifa: 0.43, prazo_dias: 7, ativo: false, linhas }, error: null }
+  ? { data: { hoje, ini: maisDias(hoje, -30), fim: hoje, tarifa: 0.43, prazo_dias: 7, ativo: true, aberta: false, linhas }, error: null }
   : { data: { ok: true }, error: null }
 
 createRoot(document.getElementById('root')!).render(<Agendamento irParaInbox={id => alert('abrir ' + id)} />)

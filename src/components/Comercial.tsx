@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase, AGENT_LABEL, fmtFone, fmtHora } from '../lib/supabase'
 import ComercialMetricas from './ComercialMetricas'
-import AgendarModal from './AgendarModal'
+import AgendarModal, { useReguaAberta } from './AgendarModal'
+import { podeAgendar } from '../lib/agendamento'
 
 // ============================================================
 // Comercial Humano — vendedores por telefone assumem leads que a
@@ -86,6 +87,8 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
   const [agendando, setAgendando] = useState<Assignment | null>(null)
   // 💳 Agendar matrícula (migration 38): o lead combinou uma data para pagar — sai da posse sem contar como perda
   const [agMatricula, setAgMatricula] = useState<Assignment | null>(null)
+  // botão de agendar matrícula: régua aberta para todos OU admin (migration 38f)
+  const reguaAberta = useReguaAberta()
   const [dtAgenda, setDtAgenda] = useState('')
   const [dados, setDados] = useState<DadosLead | null>(null)
   const [notaNova, setNotaNova] = useState('')
@@ -442,7 +445,7 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
                                   </button>
                                   <button onClick={() => { setAgendando(a); setDtAgenda('') }}
                                     className="text-[10px] border border-line text-dim rounded-lg px-2 py-1 hover:text-gold hover:border-gold/40 transition">🗓 Agendar</button>
-                                  {a.conversation_id && (
+                                  {a.conversation_id && podeAgendar(reguaAberta, isAdmin) && (
                                     <button onClick={() => setAgMatricula(a)}
                                       title="O lead combinou uma data para pagar: a Anne retoma no dia e o card sai da sua posse sem contar como perda"
                                       className="text-[10px] border border-gold/40 text-gold rounded-lg px-2 py-1 hover:bg-gold/10 transition">💳 Agendar matrícula</button>
@@ -473,7 +476,7 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
 
       {agMatricula && agMatricula.conversation_id && (
         <AgendarModal conversationId={agMatricula.conversation_id} nome={agMatricula.contacts?.name || 'Lead'}
-          onClose={() => setAgMatricula(null)} onOk={() => { setAgMatricula(null); carregarCards() }} />
+          aberta={reguaAberta} onClose={() => setAgMatricula(null)} onOk={() => { setAgMatricula(null); carregarCards() }} />
       )}
       {/* Gaveta: 📇 Dados do lead — dossiê da Anne + notas do vendedor */}
       {dados && (

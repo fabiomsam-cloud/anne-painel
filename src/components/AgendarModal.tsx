@@ -1,12 +1,24 @@
 // anne/painel/src/components/AgendarModal.tsx
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { hojeManaus, maisDias, mensagemErro } from '../lib/agendamento'
 
+/** Régua aberta para todos? (RPC fn_agendamento_aberta, migration 38f). Uma chamada ao montar a tela; false até responder. */
+export function useReguaAberta() {
+  const [aberta, setAberta] = useState(false)
+  useEffect(() => {
+    let vivo = true
+    supabase.rpc('fn_agendamento_aberta').then(({ data }) => { if (vivo) setAberta(!!(data as any)?.aberta) })
+    return () => { vivo = false }
+  }, [])
+  return aberta
+}
+
 // 🗓 Agendar matrícula — registra a data combinada com o lead (RPC fn_agendar_matricula, migration 38).
 // A partir daqui a Anne assume a conversa: no dia, sai o template e o agente do concurso retoma.
-export default function AgendarModal({ conversationId, nome, dataInicial, onClose, onOk }: {
-  conversationId: string; nome: string; dataInicial?: string | null; onClose: () => void; onOk: () => void
+// aberta = false (régua desligada ou só no telefone de teste): avisa que o lembrete NÃO sai.
+export default function AgendarModal({ conversationId, nome, dataInicial, aberta, onClose, onOk }: {
+  conversationId: string; nome: string; dataInicial?: string | null; aberta: boolean; onClose: () => void; onOk: () => void
 }) {
   const hoje = hojeManaus()
   const [data, setData] = useState(dataInicial && dataInicial > hoje ? dataInicial : '')
@@ -32,10 +44,16 @@ export default function AgendarModal({ conversationId, nome, dataInicial, onClos
       <div className="rise w-full max-w-md bg-panel border border-line rounded-2xl p-5 space-y-4" onClick={ev => ev.stopPropagation()}>
         <div>
           <div className="font-display font-semibold text-lg">🗓 Agendar matrícula</div>
-          <div className="text-sm text-dim mt-1">
-            <b className="text-cream">{nome}</b> combinou uma data para pagar. No dia, a Anne envia o lembrete e conduz a matrícula.
-            Se o lead estiver com um vendedor, ele sai da posse sem contar como perda.
-          </div>
+          {aberta ? (
+            <div className="text-sm text-dim mt-1">
+              <b className="text-cream">{nome}</b> combinou uma data para pagar. No dia, a Anne envia o lembrete e conduz a matrícula.
+              Se o lead estiver com um vendedor, ele sai da posse sem contar como perda.
+            </div>
+          ) : (
+            <div className="text-sm text-gold mt-1">
+              A régua de agendamento ainda está em teste: o lembrete automático NÃO sai enquanto ela não for aberta para todos. Use só para teste.
+            </div>
+          )}
         </div>
         <label className="block text-xs text-dim">Data combinada
           <input type="date" value={data} min={maisDias(hoje, 1)} max={maisDias(hoje, 45)} onChange={e => setData(e.target.value)}

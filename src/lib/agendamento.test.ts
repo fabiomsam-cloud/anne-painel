@@ -1,7 +1,7 @@
 // anne/painel/src/lib/agendamento.test.ts — rodar: node --test src/lib/agendamento.test.ts
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { listas, placar, grupos, calendario, mensagemErro, maisDias, ddmm, type Agendamento, type PainelAg } from './agendamento.ts'
+import { listas, placar, grupos, calendario, mensagemErro, maisDias, ddmm, podeAgendar, etiquetaRegua, type Agendamento, type PainelAg } from './agendamento.ts'
 
 const HOJE = '2026-10-20'
 let seq = 0
@@ -9,7 +9,7 @@ const ag = (o: Partial<Agendamento>): Agendamento => ({ id: `a${++seq}`, convers
   agent_slug: 'elite_tjam', frente: 'tjam', data: null, data_sugerida: null, status: 'agendado', origem: 'anne', criado_por: null,
   forma: null, obs: null, remarcacoes: 0, tentativas: 0, templates: 0, ultimo_erro: null, ativado_em: null, confirmado_em: null,
   fechado_em: null, created_at: '2026-10-01T12:00:00Z', liquido: null, valor: null, ...o })
-const painel = (linhas: Agendamento[]): PainelAg => ({ hoje: HOJE, ini: '2026-10-01', fim: '2026-10-20', tarifa: 0.43, prazo_dias: 7, ativo: true, linhas })
+const painel = (linhas: Agendamento[]): PainelAg => ({ hoje: HOJE, ini: '2026-10-01', fim: '2026-10-20', tarifa: 0.43, prazo_dias: 7, ativo: true, aberta: true, linhas })
 
 test('datas: maisDias atravessa o mês e ddmm formata', () => {
   assert.equal(maisDias('2026-10-28', 7), '2026-11-04')
@@ -95,4 +95,17 @@ test('mensagens de erro em português; código desconhecido aparece cru', () => 
   assert.match(mensagemErro('intervalo inválido'), /92 dias/)
   assert.equal(mensagemErro('xpto'), 'xpto')
   assert.equal(mensagemErro(null), 'Não foi possível salvar.')
+})
+
+test('botão de agendar: régua aberta para todos OU admin', () => {
+  assert.equal(podeAgendar(true, false), true)
+  assert.equal(podeAgendar(false, true), true)
+  assert.equal(podeAgendar(false, false), false)
+})
+
+test('etiqueta da régua: ligada / em teste / desligada', () => {
+  assert.equal(etiquetaRegua(true, true).texto, 'régua ligada')
+  assert.equal(etiquetaRegua(true, false).texto, 'régua em teste')
+  assert.equal(etiquetaRegua(false, false).texto, 'régua desligada')
+  assert.equal(etiquetaRegua(false, true).texto, 'régua desligada')
 })

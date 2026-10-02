@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Mp3Encoder } from '@breezystack/lamejs'
 import { supabase, AGENT_LABEL, STATUS_META, PIPELINE_COLS, pipelineCol, fmtHora, fmtFone } from '../lib/supabase'
-import AgendarModal from './AgendarModal'
-import { ddmm } from '../lib/agendamento'
+import AgendarModal, { useReguaAberta } from './AgendarModal'
+import { ddmm, podeAgendar } from '../lib/agendamento'
 
 type Conv = {
   id: string; status: string; current_agent_slug: string; last_message_at: string | null
@@ -115,6 +115,8 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
   // 🗓 Agendamento (migration 38): conversa → data combinada (null = aberto sem data)
   const [agMap, setAgMap] = useState<Record<string, string | null>>({})
   const [agendarAberto, setAgendarAberto] = useState(false)
+  // botão de agendar: régua aberta para todos OU admin (migration 38f)
+  const reguaAberta = useReguaAberta()
   const carregarAg = async () => {
     const { data } = await supabase.from('agendamentos').select('conversation_id,data_combinada')
       .in('status', ['sem_data', 'agendado', 'ativado', 'confirmado']).limit(1000)
@@ -655,13 +657,13 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                 </select>
                 <button onClick={() => setInfoAberto(true)} title="Dados do lead"
                   className="xl:hidden text-xs text-dim border border-line rounded-lg px-2.5 py-1.5 hover:text-cream transition">ℹ️</button>
-                {!['won', 'opted_out'].includes(sel.status) && (
+                {!['won', 'opted_out'].includes(sel.status) && podeAgendar(reguaAberta, isAdmin) && (
                   <button onClick={() => setAgendarAberto(true)} title="Registrar a data que o lead combinou para se matricular"
                     className="text-xs text-gold border border-gold/40 rounded-lg px-2.5 py-1.5 hover:bg-gold/10 transition">🗓 Agendar</button>
                 )}
                 {agendarAberto && (
                   <AgendarModal conversationId={sel.id} nome={sel.contacts?.name || fmtFone(sel.contacts?.phone)}
-                    dataInicial={agMap[sel.id] ?? null} onClose={() => setAgendarAberto(false)}
+                    dataInicial={agMap[sel.id] ?? null} aberta={reguaAberta} onClose={() => setAgendarAberto(false)}
                     onOk={() => { setAgendarAberto(false); carregarAg(); carregarConvs() }} />
                 )}
                 {sel.status === 'humano_comercial' ? (

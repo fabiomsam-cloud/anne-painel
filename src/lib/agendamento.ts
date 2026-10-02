@@ -11,7 +11,17 @@ export type Agendamento = {
   ativado_em: string | null; confirmado_em: string | null; fechado_em: string | null; created_at: string
   liquido: number | null; valor: number | null
 }
-export type PainelAg = { hoje: string; ini: string; fim: string; tarifa: number; prazo_dias: number; ativo: boolean; linhas: Agendamento[] }
+export type PainelAg = { hoje: string; ini: string; fim: string; tarifa: number; prazo_dias: number; ativo: boolean
+  aberta: boolean; linhas: Agendamento[] }
+
+/** Régua ABERTA = ligada e sem lista de teste (migration 38f). Fora disso o botão de agendar é só do admin. */
+export const podeAgendar = (aberta: boolean, isAdmin: boolean) => aberta || isAdmin
+
+export function etiquetaRegua(ativo: boolean, aberta: boolean): { texto: string; tom: 'win' | 'gold' | 'dim' } {
+  if (ativo && aberta) return { texto: 'régua ligada', tom: 'win' }
+  if (ativo) return { texto: 'régua em teste', tom: 'gold' }
+  return { texto: 'régua desligada', tom: 'dim' }
+}
 
 export const ABERTOS: StatusAg[] = ['sem_data', 'agendado', 'ativado', 'confirmado']
 export const STATUS_LABEL: Record<StatusAg, string> = {

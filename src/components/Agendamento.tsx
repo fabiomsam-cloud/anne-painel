@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase, AGENT_LABEL, fmtFone } from '../lib/supabase'
 import { FRENTE_LABEL } from '../lib/folha'
 import {
-  listas, placar, grupos, calendario, mensagemErro, ddmm, hojeManaus, maisDias, STATUS_LABEL, ORIGEM_LABEL,
+  listas, placar, grupos, calendario, mensagemErro, ddmm, hojeManaus, maisDias, STATUS_LABEL, ORIGEM_LABEL, etiquetaRegua,
   type PainelAg, type Agendamento as Ag, type Grupo,
 } from '../lib/agendamento'
 import AgendarModal from './AgendarModal'
@@ -101,13 +101,15 @@ export default function Agendamento({ irParaInbox }: { irParaInbox: (convId: str
   const linhas = l[aba]
   const conta: Record<Aba, number> = { hoje: l.hoje.length, atrasados: l.atrasados.length, proximos: l.proximos.length, semData: l.semData.length }
   const maxCal = Math.max(1, ...cal.map(c => c.n))
+  const regua = etiquetaRegua(!!dados.ativo, !!dados.aberta)
 
   return (
     <div className="h-full overflow-y-auto p-4 md:p-6 space-y-5">
       <div className="flex items-center gap-3 flex-wrap">
         <h1 className="font-display font-bold text-xl">🗓 Agendamento</h1>
-        <span className={`text-[11px] font-mono px-2 py-1 rounded-lg border ${dados.ativo ? 'text-win border-win/40 bg-win/10' : 'text-dim border-line bg-panel2'}`}>
-          {dados.ativo ? 'régua ligada' : 'régua desligada'}</span>
+        <span className={`text-[11px] font-mono px-2 py-1 rounded-lg border ${{
+          win: 'text-win border-win/40 bg-win/10', gold: 'text-gold border-gold/40 bg-gold/10', dim: 'text-dim border-line bg-panel2',
+        }[regua.tom]}`}>{regua.texto}</span>
         <div className="ml-auto flex items-center gap-2 flex-wrap text-xs text-dim">
           período da coorte
           <input type="date" value={ini} max={fim} onChange={e => setIni(e.target.value)} className="bg-panel2 border border-line rounded-lg px-2 py-1 text-cream" />
@@ -217,7 +219,7 @@ export default function Agendamento({ irParaInbox }: { irParaInbox: (convId: str
 
       {editando && (
         <AgendarModal conversationId={editando.conversation_id} nome={editando.nome || fmtFone(editando.phone)}
-          dataInicial={editando.data ?? editando.data_sugerida}
+          dataInicial={editando.data ?? editando.data_sugerida} aberta={!!dados.aberta}
           onClose={() => setEditando(null)} onOk={() => { setEditando(null); carregar() }} />
       )}
     </div>
