@@ -12,6 +12,7 @@ import Config from './components/Config'
 import Equipe from './components/Equipe'
 import Comercial from './components/Comercial'
 import Sentinela, { buscarSaude, type Saude } from './components/Sentinela'
+import Historico from './components/Historico'
 
 const TABS = [
   { id: 'inbox', label: 'Inbox', icon: '💬' },
@@ -21,6 +22,7 @@ const TABS = [
   { id: 'agentes', label: 'Agentes', icon: '🤖' },
   { id: 'disparos', label: 'Disparos', icon: '📣' },
   { id: 'metricas', label: 'Métricas', icon: '📈' },
+  { id: 'historico', label: 'Histórico', icon: '📅' },
   { id: 'sentinela', label: 'Sentinela', icon: '🛡️' },
   { id: 'equipe', label: 'Equipe', icon: '👥' },
   { id: 'config', label: 'Configuração', icon: '⚙️' },
@@ -191,6 +193,7 @@ export default function App() {
         {tab === 'disparos' && <Disparos />}
         {tab === 'equipe' && <Equipe />}
         {tab === 'metricas' && <Metricas />}
+        {tab === 'historico' && <Historico />}
         {tab === 'sentinela' && <Sentinela />}
         {tab === 'config' && <Config />}
         </div>
