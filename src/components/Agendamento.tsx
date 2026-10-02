@@ -87,6 +87,16 @@ export default function Agendamento({ irParaInbox }: { irParaInbox: (convId: str
     carregar()
   }
 
+  // sem data + data sugerida futura: o humano confirma a sugestão com um clique (spec 6.1-C / 8.1)
+  const confirmarSugerida = async (a: Ag) => {
+    const { data, error } = await supabase.rpc('fn_agendar_matricula', {
+      p_conversation_id: a.conversation_id, p_data: a.data_sugerida, p_forma: null, p_obs: null,
+    })
+    const r = (data as any) ?? {}
+    if (error || !r.ok) { setErro(mensagemErro(error?.message || r.erro)); return }
+    carregar()
+  }
+
   if (!dados || !l || !p) return <div className="h-full grid place-items-center text-dim font-mono text-sm">{erro || 'carregando…'}</div>
   const linhas = l[aba]
   const conta: Record<Aba, number> = { hoje: l.hoje.length, atrasados: l.atrasados.length, proximos: l.proximos.length, semData: l.semData.length }
@@ -98,7 +108,7 @@ export default function Agendamento({ irParaInbox }: { irParaInbox: (convId: str
         <h1 className="font-display font-bold text-xl">🗓 Agendamento</h1>
         <span className={`text-[11px] font-mono px-2 py-1 rounded-lg border ${dados.ativo ? 'text-win border-win/40 bg-win/10' : 'text-dim border-line bg-panel2'}`}>
           {dados.ativo ? 'régua ligada' : 'régua desligada'}</span>
-        <div className="ml-auto flex items-center gap-2 text-xs text-dim">
+        <div className="ml-auto flex items-center gap-2 flex-wrap text-xs text-dim">
           período da coorte
           <input type="date" value={ini} max={fim} onChange={e => setIni(e.target.value)} className="bg-panel2 border border-line rounded-lg px-2 py-1 text-cream" />
           até
@@ -156,6 +166,10 @@ export default function Agendamento({ irParaInbox }: { irParaInbox: (convId: str
                   <td className="px-3 py-2">
                     <div className="flex gap-1 justify-end flex-wrap">
                       <button onClick={() => irParaInbox(a.conversation_id)} className="border border-line text-dim rounded-lg px-2 py-1 hover:text-cream transition">💬 Inbox</button>
+                      {a.status === 'sem_data' && a.data_sugerida && a.data_sugerida > dados.hoje && (
+                        <button onClick={() => confirmarSugerida(a)} className="border border-gold/40 text-gold rounded-lg px-2 py-1 hover:bg-gold/10 transition">
+                          ✓ Confirmar {ddmm(a.data_sugerida)}</button>
+                      )}
                       <button onClick={() => setEditando(a)} className="border border-gold/40 text-gold rounded-lg px-2 py-1 hover:bg-gold/10 transition">
                         {a.status === 'sem_data' ? '🗓 Definir data' : '✏️ Data'}</button>
                       <button onClick={() => cancelar(a)} className="border border-danger/30 text-danger/80 rounded-lg px-2 py-1 hover:bg-danger/10 transition">✕</button>
@@ -190,12 +204,12 @@ export default function Agendamento({ irParaInbox }: { irParaInbox: (convId: str
 
       <div className="rounded-xl border border-line bg-panel p-3">
         <div className="text-xs font-semibold text-cream mb-2">Próximos 30 dias · agendamentos em aberto por dia</div>
-        <div className="flex items-end gap-1 h-24">
-          {cal.map(c => (
-            <div key={c.dia} className="flex-1 flex flex-col items-center justify-end h-full" title={`${ddmm(c.dia)}: ${c.n}`}>
-              {c.n > 0 && <div className="text-[9px] font-mono text-dim">{c.n}</div>}
+        <div className="flex items-end gap-px sm:gap-1 h-24">
+          {cal.map((c, i) => (
+            <div key={c.dia} className="flex-1 min-w-0 flex flex-col items-center justify-end h-full" title={`${ddmm(c.dia)}: ${c.n}`}>
+              {c.n > 0 && <div className="text-[9px] font-mono text-dim whitespace-nowrap">{c.n}</div>}
               <div className={`w-full rounded-sm ${c.n ? 'bg-gold/60' : 'bg-line'}`} style={{ height: `${c.n ? Math.max(8, (c.n / maxCal) * 100) : 2}%` }} />
-              <div className="text-[8px] font-mono text-dim mt-1">{c.dia.slice(8, 10)}</div>
+              <div className="text-[8px] font-mono text-dim mt-1 whitespace-nowrap">{i % 5 === 0 ? c.dia.slice(8, 10) : '\u00a0'}</div>
             </div>
           ))}
         </div>
