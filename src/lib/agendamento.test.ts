@@ -38,7 +38,7 @@ test('placar: funil da coorte, taxa só com maduros, receita líquida e custo', 
     ag({ data: '2026-10-08', status: 'nao_cumpriu', ativado_em: 'x', confirmado_em: 'x', templates: 1, remarcacoes: 1 }),
     ag({ data: '2026-10-18', status: 'ativado', ativado_em: 'x', templates: 1 }),                 // ainda não maduro
     ag({ data: HOJE, status: 'agendado' }),
-    ag({ data: '2026-10-09', status: 'cancelado' }),
+    ag({ data: '2026-10-09', status: 'cancelado', templates: 1 }),                               // já cobrado: entra no custo, fora do funil
     ag({ status: 'sem_data' }),
     ag({ data: '2026-09-20', status: 'matriculado', liquido: 999 }),                             // fora do período
   ]))
@@ -55,7 +55,7 @@ test('placar: funil da coorte, taxa só com maduros, receita líquida e custo', 
   assert.equal(p.taxaConfirmacao, 0.5)
   assert.equal(p.receitaLiquida, 1400)
   assert.equal(p.semLiquido, 1)
-  assert.equal(p.custoTemplates, 2.15)
+  assert.equal(p.custoTemplates, 2.58)
   assert.equal(p.abertos, 3)                                                                     // inclui o sem data
   assert.equal(p.paraHoje, 1)
   assert.equal(p.atrasados, 1)
@@ -91,6 +91,8 @@ test('calendário: 30 dias a partir de hoje, só abertos', () => {
 test('mensagens de erro em português; código desconhecido aparece cru', () => {
   assert.match(mensagemErro('data_fora_do_intervalo'), /amanhã/)
   assert.match(mensagemErro('limite_remarcacoes'), /remarcou/)
+  assert.equal(mensagemErro('acesso negado'), 'Sem permissão.')                                  // texto cru levantado pela RPC
+  assert.match(mensagemErro('intervalo inválido'), /92 dias/)
   assert.equal(mensagemErro('xpto'), 'xpto')
   assert.equal(mensagemErro(null), 'Não foi possível salvar.')
 })

@@ -29,6 +29,8 @@ const ERROS: Record<string, string> = {
   sem_agente_venda: 'Esta conversa não tem um agente de venda para retomar na data.',
   lead_de_outro_vendedor: 'Este lead está com outro vendedor.',
   acesso_negado: 'Sem permissão.',
+  'acesso negado': 'Sem permissão.',                       // texto cru levantado pela RPC fn_agendamento_painel
+  'intervalo inválido': 'Período inválido (máximo de 92 dias).',
   nao_encontrado: 'Agendamento não encontrado ou já fechado.',
 }
 export const mensagemErro = (c?: string | null) => (c ? ERROS[c] ?? String(c) : 'Não foi possível salvar.')
@@ -83,7 +85,9 @@ export function placar(p: PainelAg): Placar {
     taxaMatricula: maduros.length ? maduros.filter(a => a.status === 'matriculado').length / maduros.length : null,
     receitaLiquida: mats.reduce((s, a) => s + (Number(a.liquido) || 0), 0),
     semLiquido: mats.filter(a => a.liquido == null).length,
-    custoTemplates: Math.round(coorte.reduce((s, a) => s + (a.templates || 0), 0) * p.tarifa * 100) / 100,
+    // custo = TODO template enviado a quem tem data no período, qualquer status (cancelado já foi cobrado); o funil acima fica só na coorte
+    custoTemplates: Math.round(p.linhas.filter(a => !!a.data && a.data >= p.ini && a.data <= p.fim)
+      .reduce((s, a) => s + (a.templates || 0), 0) * p.tarifa * 100) / 100,
   }
 }
 
