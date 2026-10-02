@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase, AGENT_LABEL, fmtFone, fmtHora } from '../lib/supabase'
 import ComercialMetricas from './ComercialMetricas'
+import AgendarModal from './AgendarModal'
 
 // ============================================================
 // Comercial Humano — vendedores por telefone assumem leads que a
@@ -83,6 +84,8 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
   const [motivo, setMotivo] = useState('')
   const [notaDev, setNotaDev] = useState('')
   const [agendando, setAgendando] = useState<Assignment | null>(null)
+  // 💳 Agendar matrícula (migration 38): o lead combinou uma data para pagar — sai da posse sem contar como perda
+  const [agMatricula, setAgMatricula] = useState<Assignment | null>(null)
   const [dtAgenda, setDtAgenda] = useState('')
   const [dados, setDados] = useState<DadosLead | null>(null)
   const [notaNova, setNotaNova] = useState('')
@@ -121,6 +124,7 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
     const { data } = await supabase.from('lead_assignments')
       .select('*,contacts(name,phone,source_first),conversations(current_agent_slug)')
       .eq('vendedor_id', vendSel)
+      .neq('status', 'agendado')   // saiu para o 🗓 Agendamento: fora do pipeline e das taxas
       .or(`status.eq.ativo,closed_at.gte.${new Date(Date.now() - 45 * 86400000).toISOString()}`)
       .order('assigned_at', { ascending: false }).limit(400)
     const cs = (data as any) ?? []
@@ -438,6 +442,11 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
                                   </button>
                                   <button onClick={() => { setAgendando(a); setDtAgenda('') }}
                                     className="text-[10px] border border-line text-dim rounded-lg px-2 py-1 hover:text-gold hover:border-gold/40 transition">🗓 Agendar</button>
+                                  {a.conversation_id && (
+                                    <button onClick={() => setAgMatricula(a)}
+                                      title="O lead combinou uma data para pagar: a Anne retoma no dia e o card sai da sua posse sem contar como perda"
+                                      className="text-[10px] border border-gold/40 text-gold rounded-lg px-2 py-1 hover:bg-gold/10 transition">💳 Agendar matrícula</button>
+                                  )}
                                   <button onClick={() => setDevolvendo(a)}
                                     className="text-[10px] border border-danger/30 text-danger/80 rounded-lg px-2 py-1 hover:bg-danger/10 transition">↩ Devolver</button>
                                 </div>
@@ -462,6 +471,10 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
         <Gestao vendedores={vendedores} recarregarVendedores={carregarVendedores} flash={flash} />
       )}
 
+      {agMatricula && agMatricula.conversation_id && (
+        <AgendarModal conversationId={agMatricula.conversation_id} nome={agMatricula.contacts?.name || 'Lead'}
+          onClose={() => setAgMatricula(null)} onOk={() => { setAgMatricula(null); carregarCards() }} />
+      )}
       {/* Gaveta: 📇 Dados do lead — dossiê da Anne + notas do vendedor */}
       {dados && (
         <>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase, fmtHora, fmtFone } from '../lib/supabase'
+import AgendarModal from './AgendarModal'
 
 type Esc = {
   id: string; reason: string | null; question_text: string | null; status: string
@@ -19,6 +20,8 @@ export default function Escalacoes({ irParaInbox, isAdmin = false }:
   const [vendEscolhido, setVendEscolhido] = useState('')
   const [enviandoBusy, setEnviandoBusy] = useState(false)
   const [aviso, setAviso] = useState('')
+  // 🗓 Agendar matrícula (migration 38): a escalação "pagamento agendado" vira agendamento e a Anne retoma na data
+  const [agendando, setAgendando] = useState<Esc | null>(null)
 
   const carregar = async () => {
     const { data } = await supabase
@@ -146,6 +149,11 @@ export default function Escalacoes({ irParaInbox, isAdmin = false }:
                       className="text-xs font-semibold bg-win/10 text-win border border-win/40 rounded-lg px-3 py-1.5 hover:bg-win/20 transition">
                       ✓ Encerrar
                     </button>
+                    <button onClick={() => setAgendando(e)}
+                      title="O lead combinou uma data para pagar: registra a data, encerra a escalação e a Anne retoma no dia"
+                      className="text-xs font-semibold bg-gold/10 text-gold border border-gold/40 rounded-lg px-3 py-1.5 hover:bg-gold/20 transition">
+                      🗓 Agendar matrícula
+                    </button>
                     {isAdmin && (
                       <button onClick={() => { setEnviando(e); setVendEscolhido('') }}
                         title="Escolher um vendedor: o lead vira card dele no Comercial Humano (coluna Recebidos) e ele passa a ser o responsável"
@@ -159,6 +167,12 @@ export default function Escalacoes({ irParaInbox, isAdmin = false }:
             </div>
           </div>
         ))}
+        {agendando && (
+          <AgendarModal conversationId={agendando.conversations.id}
+            nome={agendando.conversations?.contacts?.name || fmtFone(agendando.conversations?.contacts?.phone)}
+            onClose={() => setAgendando(null)}
+            onOk={() => { setAviso('✅ Matrícula agendada — a escalação foi encerrada e a Anne retoma na data.'); setAgendando(null); carregar() }} />
+        )}
         {enviando && (
           <div className="fixed inset-0 z-50 bg-black/60 grid place-items-center p-4" onClick={() => !enviandoBusy && setEnviando(null)}>
             <div className="rise w-full max-w-md bg-panel border border-line rounded-2xl p-5 space-y-4" onClick={ev => ev.stopPropagation()}>

@@ -21,7 +21,7 @@ type Ass = {
 type Atv = { id: string; assignment_id: string; tipo: string; agendada_para: string | null; created_at: string }
 // venda da Hubla casada com o card (mesma regra do motor: 1ª venda paga após a atribuição)
 type VendaInfo = { produto: string | null; valor: number | null; pago_em: string | null; aluno: string | null }
-type Janela = { cards: Ass[]; ativs: Record<string, Atv[]>; vendas: Record<string, VendaInfo> }
+type Janela = { cards: Ass[]; ativs: Record<string, Atv[]>; vendas: Record<string, VendaInfo>; saiuAgendamento: number }
 
 // contato real com o lead; agendamento e nota não contam como tentativa
 const TENTATIVAS = ['ligacao_atendida', 'ligacao_nao_atendida', 'whatsapp']
@@ -69,11 +69,16 @@ async function carregarJanela(de: string | null, ate: string | null, comVendas =
   const cards = await fetchAll<Ass>((a, b) => {
     let q = supabase.from('lead_assignments')
       .select('id,vendedor_id,contact_id,conversation_id,estrato,status,motivo_perda,venda_valor,assigned_at,closed_at,contacts(name,phone),conversations(current_agent_slug)')
+      .neq('status', 'agendado')   // saiu para o 🗓 Agendamento: fora do denominador (decisão 02/10)
       .order('assigned_at').order('id').range(a, b)
     if (de) q = q.gte('assigned_at', de)
     if (ate) q = q.lt('assigned_at', ate)
     return q
   })
+  let qa = supabase.from('lead_assignments').select('*', { count: 'exact', head: true }).eq('status', 'agendado')
+  if (de) qa = qa.gte('assigned_at', de)
+  if (ate) qa = qa.lt('assigned_at', ate)
+  const { count: saiuAgendamento } = await qa
   const ativs: Record<string, Atv[]> = {}
   const ids = cards.map(c => c.id)
   for (let i = 0; i < ids.length; i += 100) {
@@ -106,7 +111,7 @@ async function carregarJanela(de: string | null, ate: string | null, comVendas =
       }
     }
   }
-  return { cards, ativs, vendas }
+  return { cards, ativs, vendas, saiuAgendamento: saiuAgendamento ?? 0 }
 }
 
 // ---- agregação: uma passada pelos cards produz tudo que a tela mostra ----
@@ -204,7 +209,7 @@ function Kpi({ label, valor, children }: { label: string; valor: string; childre
 
 export default function ComercialMetricas({ vendedores }: { vendedores: Vendedor[] }) {
   const [periodo, setPeriodo] = useState<Periodo>({ tipo: 'd30', de: '', ate: '' })
-  const [janela, setJanela] = useState<Janela>({ cards: [], ativs: {}, vendas: {} })
+  const [janela, setJanela] = useState<Janela>({ cards: [], ativs: {}, vendas: {}, saiuAgendamento: 0 })
   const [janelaPrev, setJanelaPrev] = useState<Janela | null>(null)
   const [vendSel, setVendSel] = useState<Set<string>>(new Set())   // vazio = todos
   const [prodSel, setProdSel] = useState('')                        // '' = todos
@@ -455,6 +460,9 @@ export default function ComercialMetricas({ vendedores }: { vendedores: Vendedor
                 {' '}no período — <b className="text-cream">{pct(perdidos, t.trabalhados || t.recebidos)}</b> dos
                 leads trabalhados. Motivos detalhados abaixo.
               </span>
+              {janela.saiuAgendamento > 0 && (
+                <span><b className="text-cream">{janela.saiuAgendamento}</b> saíram para 🗓 Agendamento (fora da taxa; não segue os filtros de vendedor e produto).</span>
+              )}
             </div>
           </section>
 

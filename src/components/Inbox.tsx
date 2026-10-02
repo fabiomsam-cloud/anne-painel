@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Mp3Encoder } from '@breezystack/lamejs'
 import { supabase, AGENT_LABEL, STATUS_META, PIPELINE_COLS, pipelineCol, fmtHora, fmtFone } from '../lib/supabase'
+import AgendarModal from './AgendarModal'
+import { ddmm } from '../lib/agendamento'
 
 type Conv = {
   id: string; status: string; current_agent_slug: string; last_message_at: string | null
@@ -110,6 +112,15 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
   const [filtroAgente, setFiltroAgente] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
   const [filtroJanela, setFiltroJanela] = useState<'' | 'aberta' | 'fechada'>('')
+  // 🗓 Agendamento (migration 38): conversa → data combinada (null = aberto sem data)
+  const [agMap, setAgMap] = useState<Record<string, string | null>>({})
+  const [agendarAberto, setAgendarAberto] = useState(false)
+  const carregarAg = async () => {
+    const { data } = await supabase.from('agendamentos').select('conversation_id,data_combinada')
+      .in('status', ['sem_data', 'agendado', 'ativado', 'confirmado']).limit(1000)
+    setAgMap(Object.fromEntries(((data as any[]) ?? []).map(a => [a.conversation_id, a.data_combinada])))
+  }
+  useEffect(() => { carregarAg() }, [])
   const [filtroEtapa, setFiltroEtapa] = useState('')
   const [soNaoLidas, setSoNaoLidas] = useState(false)
   const [busca, setBusca] = useState('')
@@ -619,6 +630,12 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                 title={jan.aberta ? 'Tempo restante da janela de 24h (conversa livre)' : 'Sem conversa livre — envie um template p/ reabrir'}>
                 {jan.aberta ? `🕐 ${jan.label}` : '🔒 Janela fechada'}
               </span>
+              {sel.id in agMap && (
+                <span className="text-[11px] font-mono px-2 py-1 rounded-lg border border-gold/40 text-gold bg-gold/10 shrink-0"
+                  title="Matrícula agendada — a Anne retoma na data combinada">
+                  🗓 {agMap[sel.id] ? ddmm(agMap[sel.id]!) : 'sem data'}
+                </span>
+              )}
               <div className="ml-auto flex items-center gap-2">
                 <select value={(sel.responsavel_email ?? '').toLowerCase()} onChange={e => trocarResponsavel(e.target.value)}
                   title="Responsável humano pela conversa — quem a encontra no filtro Vendedor"
@@ -638,6 +655,15 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                 </select>
                 <button onClick={() => setInfoAberto(true)} title="Dados do lead"
                   className="xl:hidden text-xs text-dim border border-line rounded-lg px-2.5 py-1.5 hover:text-cream transition">ℹ️</button>
+                {!['won', 'opted_out'].includes(sel.status) && (
+                  <button onClick={() => setAgendarAberto(true)} title="Registrar a data que o lead combinou para se matricular"
+                    className="text-xs text-gold border border-gold/40 rounded-lg px-2.5 py-1.5 hover:bg-gold/10 transition">🗓 Agendar</button>
+                )}
+                {agendarAberto && (
+                  <AgendarModal conversationId={sel.id} nome={sel.contacts?.name || fmtFone(sel.contacts?.phone)}
+                    dataInicial={agMap[sel.id] ?? null} onClose={() => setAgendarAberto(false)}
+                    onOk={() => { setAgendarAberto(false); carregarAg(); carregarConvs() }} />
+                )}
                 {sel.status === 'humano_comercial' ? (
                   <span className="text-[11px] font-mono px-2.5 py-1.5 rounded-lg border border-gold/50 text-gold bg-gold/10"
                     title="Lead de posse de um vendedor do Comercial Humano — devolução e registro de ligações na aba ☎️ Comercial">
