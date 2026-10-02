@@ -13,12 +13,14 @@ import Equipe from './components/Equipe'
 import Comercial from './components/Comercial'
 import Sentinela, { buscarSaude, type Saude } from './components/Sentinela'
 import Historico from './components/Historico'
+import Agendamento from './components/Agendamento'
 
 const TABS = [
   { id: 'inbox', label: 'Inbox', icon: '💬' },
   { id: 'escalacoes', label: 'Escalações', icon: '🚨' },
   { id: 'kanban', label: 'Pipeline', icon: '📋' },
   { id: 'comercial', label: 'Comercial', icon: '☎️' },
+  { id: 'agendamento', label: 'Agendamento', icon: '🗓' },
   { id: 'agentes', label: 'Agentes', icon: '🤖' },
   { id: 'disparos', label: 'Disparos', icon: '📣' },
   { id: 'metricas', label: 'Métricas', icon: '📈' },
@@ -189,6 +191,7 @@ export default function App() {
         {tab === 'kanban' && <Kanban />}
         {tab === 'comercial' && <Comercial irParaInbox={(convId: string) => { setConvParaAbrir(convId); setTab('inbox') }}
           isAdmin={papel.role === 'admin'} meuVendedorId={papel.vendedor_id ?? null} meuTipo={papel.tipo ?? null} />}
+        {tab === 'agendamento' && <Agendamento irParaInbox={(convId: string) => { setConvParaAbrir(convId); setTab('inbox') }} />}
         {tab === 'agentes' && <Agentes />}
         {tab === 'disparos' && <Disparos />}
         {tab === 'equipe' && <Equipe />}
