@@ -105,3 +105,10 @@ body::after {
   .folha .nota{margin-bottom:3px;font-size:.72rem}
   body.print-uma .folha:not(.alvo){display:none}
 }
+
+/* Inbox: linha que acabou de receber mensagem do lead (07/10) */
+@keyframes inbox-flash {
+  0%, 100% { background-color: transparent; }
+  25%, 75% { background-color: rgb(45 212 191 / 0.22); }
+}
+.inbox-flash { animation: inbox-flash 1.2s ease-in-out 3; }

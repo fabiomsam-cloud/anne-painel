@@ -60,6 +60,34 @@ function comHumano(status: string) {
   return status === 'human' || status === 'humano_comercial'
 }
 
+// ---- sinais de atenção (07/10): som, título da aba, notificação do navegador ----
+// preferências por navegador (localStorage); som ligado por padrão, notificação só após o usuário autorizar
+function prefLer(k: string, padrao: boolean) {
+  try { const v = localStorage.getItem(k); return v === null ? padrao : v === '1' } catch { return padrao }
+}
+function prefGravar(k: string, v: boolean) { try { localStorage.setItem(k, v ? '1' : '0') } catch { /* privado */ } }
+// dois toques curtos (WebAudio, sem arquivo) — só toca depois de um gesto do usuário na página
+let audioCtx: AudioContext | null = null
+function tocarAviso() {
+  try {
+    audioCtx = audioCtx ?? new AudioContext()
+    if (audioCtx.state === 'suspended') audioCtx.resume()
+    const t0 = audioCtx.currentTime
+    ;[[880, 0], [1175, 0.14]].forEach(([f, dt]) => {
+      const o = audioCtx!.createOscillator(), g = audioCtx!.createGain()
+      o.type = 'sine'; o.frequency.value = f
+      g.gain.setValueAtTime(0.0001, t0 + dt)
+      g.gain.exponentialRampToValueAtTime(0.25, t0 + dt + 0.02)
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.13)
+      o.connect(g).connect(audioCtx!.destination)
+      o.start(t0 + dt); o.stop(t0 + dt + 0.15)
+    })
+  } catch { /* sem áudio */ }
+}
+// a aba está realmente na frente do vendedor? (lida só se ele pode estar vendo)
+function abaVisivel() { return document.visibilityState === 'visible' && document.hasFocus() }
+const TITULO_BASE = document.title.replace(/^\(\d+\)\s*/, '')
+
 // Gravação do navegador (webm/mp4) → MP3 mono, formato que a Meta aceita por link.
 // A conversão roda no envio; a prévia toca o blob original direto.
 async function blobParaMp3(blob: Blob): Promise<Blob> {
@@ -83,14 +111,6 @@ async function blobParaMp3(blob: Blob): Promise<Blob> {
   const fim = enc.flush()
   if (fim.length) partes.push(fim)
   return new Blob(partes as BlobPart[], { type: 'audio/mpeg' })
-}
-
-// quem precisa de atenção fica no topo, aberta ou fechada a janela:
-// 0 = não lida · 1 = com humano aguardando sua resposta · 2 = resto
-function prioridade(c: Conv) {
-  if (naoLida(c)) return 0
-  if (comHumano(c.status) && c.last_user_message_at && !ultimaEhSaida(c)) return 1
-  return 2
 }
 
 const FROM_STYLE: Record<string, string> = {
@@ -127,6 +147,10 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
   useEffect(() => { carregarAg() }, [])
   const [filtroEtapa, setFiltroEtapa] = useState('')
   const [soNaoLidas, setSoNaoLidas] = useState(false)
+  // sinais de atenção: som / notificação do navegador / linha em destaque (id → quando chegou)
+  const [som, setSom] = useState(() => prefLer('inbox_som', true))
+  const [notif, setNotif] = useState(() => prefLer('inbox_notif', false) && typeof Notification !== 'undefined' && Notification.permission === 'granted')
+  const [destaque, setDestaque] = useState<Record<string, number>>({})
   const [busca, setBusca] = useState('')
   const [texto, setTexto] = useState('')
   const [enviando, setEnviando] = useState(false)
@@ -148,6 +172,27 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
   filtroAgenteRef.current = filtroAgente
   const filtroRespRef = useRef('')
   filtroRespRef.current = filtroResp
+  const convsRef = useRef<Conv[]>([])
+  convsRef.current = convs
+  const selRef = useRef<Conv | null>(null)
+  selRef.current = sel
+  const meuEmailRef = useRef('')
+  meuEmailRef.current = meuEmail
+  const somRef = useRef(true)
+  somRef.current = som
+  const notifRef = useRef(false)
+  notifRef.current = notif
+
+  // FILA DO VENDEDOR (07/10): conversa "minha" = com humano (human/comercial) ou cujo responsável sou eu.
+  // Para quem não é admin, "não lida" e prioridade só valem nessas; as da Anne (IA) não disputam o topo.
+  const relevante = (c: Conv) =>
+    comHumano(c.status) || (!!meuEmail && (c.responsavel_email ?? '').toLowerCase() === meuEmail)
+  const unreadDe = (c: Conv) => naoLida(c) && (isAdmin || relevante(c))
+  const prioridadeDe = (c: Conv) => {
+    if (unreadDe(c)) return 0
+    if (comHumano(c.status) && c.last_user_message_at && !ultimaEhSaida(c)) return 1
+    return 2
+  }
 
   // nome curto de quem cuida da conversa: vendedor cadastrado → nome; admin → parte local do e-mail
   const nomeResp = (email: string | null | undefined) => {
@@ -219,8 +264,67 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
   useEffect(() => {
     supabase.from('vendedores').select('id,nome,email,tipo,ativo').order('nome')
       .then(({ data }) => setVendedores((data as any) ?? []))
-    supabase.auth.getUser().then(({ data }) => setMeuEmail((data.user?.email ?? '').toLowerCase()))
+    supabase.auth.getUser().then(({ data }) => {
+      const em = (data.user?.email ?? '').toLowerCase()
+      setMeuEmail(em)
+      // vendedor entra já no filtro "Minhas conversas"; admin segue vendo tudo
+      if (!isAdmin && em && !filtroRespRef.current) setFiltroResp(em)
+    })
   }, [])
+
+  // contador no título da aba = minhas conversas com resposta do lead sem abrir
+  const minhasNaoLidas = convs.filter(c => naoLida(c) && relevante(c)).length
+  useEffect(() => {
+    document.title = minhasNaoLidas > 0 ? `(${minhasNaoLidas}) ${TITULO_BASE}` : TITULO_BASE
+    return () => { document.title = TITULO_BASE }
+  }, [minhasNaoLidas])
+
+  // voltou para a aba com uma conversa aberta → aí sim ela conta como lida
+  useEffect(() => {
+    const h = () => { const s = selRef.current; if (s && abaVisivel() && naoLida(s)) marcarLida(s) }
+    document.addEventListener('visibilitychange', h); window.addEventListener('focus', h)
+    return () => { document.removeEventListener('visibilitychange', h); window.removeEventListener('focus', h) }
+  }, [])
+
+  // mensagem nova de LEAD em conversa minha → som + notificação + linha em destaque
+  useEffect(() => {
+    const ch = supabase.channel('inbox-lead-msgs')
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: 'from_type=eq.user' },
+        payload => {
+          const m = payload.new as Msg & { conversation_id: string }
+          const c = convsRef.current.find(x => x.id === m.conversation_id)
+          if (!c) return
+          const me = meuEmailRef.current
+          const minha = comHumano(c.status) || (!!me && (c.responsavel_email ?? '').toLowerCase() === me)
+          if (!minha) return
+          const aberta = selRef.current?.id === c.id && abaVisivel()
+          setDestaque(d => ({ ...d, [c.id]: Date.now() }))
+          setTimeout(() => setDestaque(d => { const { [c.id]: _, ...r } = d; return r }), 6000)
+          if (aberta) return
+          if (somRef.current) tocarAviso()
+          if (notifRef.current && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            try {
+              const n = new Notification(c.contacts?.name || fmtFone(c.contacts?.phone) || 'Lead', {
+                body: m.type === 'text' ? String(m.content ?? '').slice(0, 120) : `[${m.type}]`,
+                tag: `conv-${c.id}`,
+              })
+              n.onclick = () => { window.focus(); const f = convsRef.current.find(x => x.id === c.id) ?? c; setSel(f); marcarLida(f); n.close() }
+            } catch { /* navegador sem suporte */ }
+          }
+        })
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [])
+
+  const alternarSom = () => { setSom(v => { prefGravar('inbox_som', !v); return !v }); tocarAviso() }
+  const alternarNotif = async () => {
+    if (typeof Notification === 'undefined') return
+    if (notif) { setNotif(false); prefGravar('inbox_notif', false); return }
+    const perm = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission()
+    const ok = perm === 'granted'
+    setNotif(ok); prefGravar('inbox_notif', ok)
+  }
 
   useEffect(() => {
     carregarConvs()
@@ -272,8 +376,8 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${sel.id}` },
         payload => {
           setMsgs(m => [...m, payload.new as Msg])
-          // conversa está aberta na tela: mensagem nova do lead já nasce lida
-          if ((payload.new as Msg).from_type === 'user') marcarLida(sel)
+          // conversa aberta E aba na frente: mensagem nova do lead já nasce lida (em aba esquecida, não)
+          if ((payload.new as Msg).from_type === 'user' && abaVisivel()) marcarLida(sel)
         })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
@@ -501,14 +605,14 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
     if (filtroResp === 'sem' && c.responsavel_email) return false
     if (filtroResp && filtroResp !== 'sem' && (c.responsavel_email ?? '').toLowerCase() !== filtroResp) return false
     if (filtroJanela && (janela(c, agora).aberta ? 'aberta' : 'fechada') !== filtroJanela) return false
-    if (soNaoLidas && !naoLida(c)) return false
+    if (soNaoLidas && !unreadDe(c)) return false
     return true
   }).sort((a, b) => {
-    const pa = prioridade(a), pb = prioridade(b)
+    const pa = prioridadeDe(a), pb = prioridadeDe(b)
     if (pa !== pb) return pa - pb
     return String(b.last_message_at ?? '').localeCompare(String(a.last_message_at ?? ''))
   })
-  const totalNaoLidas = convs.filter(naoLida).length
+  const totalNaoLidas = convs.filter(unreadDe).length
 
   const mem = sel?.contacts?.client_memory ?? {}
   const jan = janela(sel, agora)
@@ -559,8 +663,17 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                 {lbl}
               </button>
             ))}
+            <button onClick={alternarSom} title={som ? 'Som ligado: toca quando um lead seu responde' : 'Som desligado'}
+              className={`ml-auto text-[11px] px-2 py-1 rounded-lg border transition ${som ? 'border-line text-cream' : 'border-line text-dim/50'}`}>
+              {som ? '🔊' : '🔇'}
+            </button>
+            <button onClick={alternarNotif}
+              title={notif ? 'Notificação do navegador ligada' : 'Ativar notificação do navegador quando um lead seu responder'}
+              className={`text-[11px] px-2 py-1 rounded-lg border transition ${notif ? 'border-gold/60 bg-gold/10 text-cream' : 'border-line text-dim/50'}`}>
+              📣
+            </button>
             <button onClick={() => setSoNaoLidas(v => !v)}
-              className={`ml-auto text-[11px] px-2.5 py-1 rounded-lg border transition
+              className={`text-[11px] px-2.5 py-1 rounded-lg border transition
                 ${soNaoLidas ? 'border-teal/60 bg-teal/10 text-teal' : 'border-line text-dim hover:text-cream'}`}
               title="Só conversas com resposta do lead que ninguém abriu ainda">
               🔔{totalNaoLidas > 0 ? ` ${totalNaoLidas}` : ''}
@@ -570,12 +683,13 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
         <div className="flex-1 overflow-y-auto">
           {lista.map(c => {
             const etapa = ETAPA_CHIP[pipelineCol(c)]
-            const unread = naoLida(c)
+            const unread = unreadDe(c)
             // conversa com humano: a última mensagem é de saída = você já respondeu
             const vcRespondeu = comHumano(c.status) && ultimaEhSaida(c)
             return (
             <button key={c.id} onClick={() => { setSel(c); marcarLida(c) }}
               className={`w-full text-left px-4 py-3 border-b border-line/50 hover:bg-panel2/50 transition-colors
+                ${destaque[c.id] ? 'inbox-flash' : ''}
                 ${sel?.id === c.id ? 'bg-panel2' : unread ? 'bg-teal/5' : ''}`}>
               <div className="flex items-center justify-between gap-2">
                 <span className={`text-sm truncate ${unread ? 'font-semibold text-cream' : 'font-medium'}`}>
