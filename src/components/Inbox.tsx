@@ -84,6 +84,15 @@ function tocarAviso() {
     })
   } catch { /* sem áudio */ }
 }
+// "há 2h": quanto tempo o lead espera resposta
+function fmtEspera(ts: string | null | undefined, agora: number) {
+  if (!ts) return ''
+  const min = Math.max(0, Math.round((agora - new Date(ts).getTime()) / 60000))
+  if (min < 60) return `há ${min} min`
+  const h = Math.floor(min / 60)
+  if (h < 48) return `há ${h}h`
+  return `há ${Math.floor(h / 24)} dias`
+}
 // a aba está realmente na frente do vendedor? (lida só se ele pode estar vendo)
 function abaVisivel() { return document.visibilityState === 'visible' && document.hasFocus() }
 const TITULO_BASE = document.title.replace(/^\(\d+\)\s*/, '')
@@ -151,6 +160,8 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
   const [som, setSom] = useState(() => prefLer('inbox_som', true))
   const [notif, setNotif] = useState(() => prefLer('inbox_notif', false) && typeof Notification !== 'undefined' && Notification.permission === 'granted')
   const [destaque, setDestaque] = useState<Record<string, number>>({})
+  // seção fixa "Aguardando minha resposta" (07/10): recolhível, aberta por padrão
+  const [filaAberta, setFilaAberta] = useState(true)
   const [busca, setBusca] = useState('')
   const [texto, setTexto] = useState('')
   const [enviando, setEnviando] = useState(false)
@@ -188,6 +199,8 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
   const relevante = (c: Conv) =>
     comHumano(c.status) || (!!meuEmail && (c.responsavel_email ?? '').toLowerCase() === meuEmail)
   const unreadDe = (c: Conv) => naoLida(c) && (isAdmin || relevante(c))
+  // AGUARDANDO RESPOSTA: conversa minha em que a última mensagem é do lead (abrir sem responder não tira daqui)
+  const aguardando = (c: Conv) => relevante(c) && !!c.last_user_message_at && !ultimaEhSaida(c)
   const prioridadeDe = (c: Conv) => {
     if (unreadDe(c)) return 0
     if (comHumano(c.status) && c.last_user_message_at && !ultimaEhSaida(c)) return 1
@@ -273,11 +286,13 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
   }, [])
 
   // contador no título da aba = minhas conversas com resposta do lead sem abrir
-  const minhasNaoLidas = convs.filter(c => naoLida(c) && relevante(c)).length
+  // contador no título da aba = conversas aguardando minha resposta (o que o bloco fixo mostra)
+  const minhasAguardando = convs.filter(c => aguardando(c) &&
+    (!isAdmin || !c.responsavel_email || (c.responsavel_email ?? '').toLowerCase() === meuEmail)).length
   useEffect(() => {
-    document.title = minhasNaoLidas > 0 ? `(${minhasNaoLidas}) ${TITULO_BASE}` : TITULO_BASE
+    document.title = minhasAguardando > 0 ? `(${minhasAguardando}) ${TITULO_BASE}` : TITULO_BASE
     return () => { document.title = TITULO_BASE }
-  }, [minhasNaoLidas])
+  }, [minhasAguardando])
 
   // voltou para a aba com uma conversa aberta → aí sim ela conta como lida
   useEffect(() => {
@@ -613,10 +628,63 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
     return String(b.last_message_at ?? '').localeCompare(String(a.last_message_at ?? ''))
   })
   const totalNaoLidas = convs.filter(unreadDe).length
+  // bloco fixo: quem espera há mais tempo primeiro; o resto segue a ordem de sempre
+  const fila = lista.filter(aguardando)
+    .sort((a, b) => String(a.last_user_message_at ?? '').localeCompare(String(b.last_user_message_at ?? '')))
+  const resto = lista.filter(c => !aguardando(c))
 
   const mem = sel?.contacts?.client_memory ?? {}
   const jan = janela(sel, agora)
   const primeiroNome = (sel?.contacts?.name ?? '').trim().split(/\s+/)[0] || 'concurseiro(a)'
+
+  // uma linha da lista (usada no bloco fixo e no resto); naFila = mostra o tempo de espera
+  const linha = (c: Conv, naFila: boolean) => {
+            const etapa = ETAPA_CHIP[pipelineCol(c)]
+            const unread = unreadDe(c)
+            // conversa com humano: a última mensagem é de saída = você já respondeu
+            const vcRespondeu = comHumano(c.status) && ultimaEhSaida(c)
+            return (
+            <button key={c.id} onClick={() => { setSel(c); marcarLida(c) }}
+              className={`w-full text-left px-4 py-3 border-b border-line/50 hover:bg-panel2/50 transition-colors
+                ${destaque[c.id] ? 'inbox-flash' : ''}
+                ${sel?.id === c.id ? 'bg-panel2' : unread ? 'bg-teal/5' : ''}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className={`text-sm truncate ${unread ? 'font-semibold text-cream' : 'font-medium'}`}>
+                  {unread && <span className="text-teal mr-1.5">●</span>}
+                  {c.contacts?.name || fmtFone(c.contacts?.phone)}
+                </span>
+                {naFila
+                  ? <span className="font-mono text-[10px] text-gold shrink-0" title={`Lead escreveu ${fmtHora(c.last_user_message_at)}`}>⏳ {fmtEspera(c.last_user_message_at, agora)}</span>
+                  : <span className="font-mono text-[10px] text-dim shrink-0">{fmtHora(c.last_message_at)}</span>}
+              </div>
+              <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                <span className={`text-[10px] px-1.5 py-0.5 rounded border ${STATUS_META[c.status]?.cls ?? ''}`}>
+                  {STATUS_META[c.status]?.label ?? c.status}
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded border border-line text-dim">
+                  {AGENT_LABEL[c.current_agent_slug] ?? c.current_agent_slug}
+                </span>
+                {etapa && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded border ${etapa.cls}`}>{etapa.label}</span>
+                )}
+                {c.responsavel_email && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded border border-line text-dim" title={c.responsavel_email}>
+                    👤 {nomeResp(c.responsavel_email)}
+                  </span>
+                )}
+                {unread ? (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded border border-teal/50 text-teal bg-teal/10">💬 lead respondeu</span>
+                ) : comHumano(c.status) && c.last_user_message_at ? (
+                  vcRespondeu
+                    ? <span className="text-[10px] px-1.5 py-0.5 rounded border border-win/40 text-win bg-win/5">✓ você respondeu</span>
+                    : <span className="text-[10px] px-1.5 py-0.5 rounded border border-gold/50 text-gold bg-gold/10">✋ falta responder</span>
+                ) : null}
+                <span title={janela(c, agora).aberta ? `Janela aberta · resta ${janela(c, agora).label}` : 'Janela de 24h fechada'}
+                  className="text-[10px] ml-auto">{janela(c, agora).aberta ? '🟢' : '🔴'}</span>
+              </div>
+            </button>
+            )
+  }
 
   return (
     <div className="h-full flex">
@@ -681,51 +749,24 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {lista.map(c => {
-            const etapa = ETAPA_CHIP[pipelineCol(c)]
-            const unread = unreadDe(c)
-            // conversa com humano: a última mensagem é de saída = você já respondeu
-            const vcRespondeu = comHumano(c.status) && ultimaEhSaida(c)
-            return (
-            <button key={c.id} onClick={() => { setSel(c); marcarLida(c) }}
-              className={`w-full text-left px-4 py-3 border-b border-line/50 hover:bg-panel2/50 transition-colors
-                ${destaque[c.id] ? 'inbox-flash' : ''}
-                ${sel?.id === c.id ? 'bg-panel2' : unread ? 'bg-teal/5' : ''}`}>
-              <div className="flex items-center justify-between gap-2">
-                <span className={`text-sm truncate ${unread ? 'font-semibold text-cream' : 'font-medium'}`}>
-                  {unread && <span className="text-teal mr-1.5">●</span>}
-                  {c.contacts?.name || fmtFone(c.contacts?.phone)}
+          {fila.length > 0 && (
+            <div className="sticky top-0 z-10 bg-panel border-b border-gold/40">
+              <button onClick={() => setFilaAberta(v => !v)}
+                className="w-full flex items-center justify-between px-4 py-2 text-[11px] font-mono uppercase tracking-widest text-gold hover:bg-panel2/50"
+                title="Conversas em que a última mensagem é do lead e ninguém respondeu. Responder tira daqui; só abrir, não.">
+                <span>✋ {isAdmin && !filtroResp ? 'Aguardando resposta' : 'Aguardando minha resposta'}</span>
+                <span className="flex items-center gap-2">
+                  <span className="px-1.5 py-0.5 rounded-full bg-gold text-ink text-[10px] font-semibold">{fila.length}</span>
+                  <span className="text-dim">{filaAberta ? '▾' : '▸'}</span>
                 </span>
-                <span className="font-mono text-[10px] text-dim shrink-0">{fmtHora(c.last_message_at)}</span>
-              </div>
-              <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                <span className={`text-[10px] px-1.5 py-0.5 rounded border ${STATUS_META[c.status]?.cls ?? ''}`}>
-                  {STATUS_META[c.status]?.label ?? c.status}
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded border border-line text-dim">
-                  {AGENT_LABEL[c.current_agent_slug] ?? c.current_agent_slug}
-                </span>
-                {etapa && (
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded border ${etapa.cls}`}>{etapa.label}</span>
-                )}
-                {c.responsavel_email && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded border border-line text-dim" title={c.responsavel_email}>
-                    👤 {nomeResp(c.responsavel_email)}
-                  </span>
-                )}
-                {unread ? (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded border border-teal/50 text-teal bg-teal/10">💬 lead respondeu</span>
-                ) : comHumano(c.status) && c.last_user_message_at ? (
-                  vcRespondeu
-                    ? <span className="text-[10px] px-1.5 py-0.5 rounded border border-win/40 text-win bg-win/5">✓ você respondeu</span>
-                    : <span className="text-[10px] px-1.5 py-0.5 rounded border border-gold/50 text-gold bg-gold/10">✋ falta responder</span>
-                ) : null}
-                <span title={janela(c, agora).aberta ? `Janela aberta · resta ${janela(c, agora).label}` : 'Janela de 24h fechada'}
-                  className="text-[10px] ml-auto">{janela(c, agora).aberta ? '🟢' : '🔴'}</span>
-              </div>
-            </button>
-            )
-          })}
+              </button>
+            </div>
+          )}
+          {filaAberta && fila.map(c => linha(c, true))}
+          {fila.length > 0 && resto.length > 0 && (
+            <div className="px-4 py-1.5 text-[10px] font-mono uppercase tracking-widest text-dim border-b border-line/50 bg-panel">Demais conversas</div>
+          )}
+          {resto.map(c => linha(c, false))}
           {lista.length === 0 && <div className="p-6 text-center text-dim text-sm">Nenhuma conversa.</div>}
         </div>
       </div>
