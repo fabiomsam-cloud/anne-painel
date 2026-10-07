@@ -20,6 +20,8 @@ const TEMPLATES_URL = 'https://workflows.manager03.scvpgti.com.br/webhook/anne/m
 const SEND_TPL_URL = 'https://workflows.manager03.scvpgti.com.br/webhook/anne/meta/send-template'
 // template de retomada validado pelos vendedores (41% de resposta) — único que o vendedor vê;
 // admin vê todos, com ele no topo
+// templates que o VENDEDOR vê na janela fechada: global_settings.templates_vendedor (migration 40);
+// fallback = o de retomada. Admin vê todos, com esses no topo.
 const TPL_RETOMADA = 'humano_retomada_contato1'
 const JANELA_MS = 24 * 60 * 60 * 1000
 
@@ -234,12 +236,16 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
   useEffect(() => {
     if (!sel || tpls.length) return
     if (janela(sel, agora).aberta) return
-    fetch(TEMPLATES_URL).then(r => r.json())
-      .then(d => {
+    Promise.all([
+      fetch(TEMPLATES_URL).then(r => r.json()),
+      supabase.from('global_settings').select('value').eq('key', 'templates_vendedor').maybeSingle(),
+    ])
+      .then(([d, gs]) => {
         const todos: Template[] = d.templates ?? []
-        const ret = todos.filter(t => t.name === TPL_RETOMADA)
-        setTpls(isAdmin ? [...ret, ...todos.filter(t => t.name !== TPL_RETOMADA)] : ret)
-        if (!isAdmin && ret.length) setSelTplName(TPL_RETOMADA)
+        const lista: string[] = Array.isArray(gs.data?.value) && gs.data.value.length ? gs.data.value : [TPL_RETOMADA]
+        const vend = lista.map(n => todos.find(t => t.name === n)).filter((t): t is Template => !!t)
+        setTpls(isAdmin ? [...vend, ...todos.filter(t => !lista.includes(t.name))] : vend)
+        if (!isAdmin && vend.length) setSelTplName(vend[0].name)
       })
       .catch(() => setTpls([]))
   }, [sel?.id])
