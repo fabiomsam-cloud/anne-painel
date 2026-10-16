@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Mp3Encoder } from '@breezystack/lamejs'
 import { supabase, AGENT_LABEL, STATUS_META, PIPELINE_COLS, pipelineCol, fmtHora, fmtFone } from '../lib/supabase'
 import AgendarModal, { useReguaAberta } from './AgendarModal'
+import ComercialNoInbox from './ComercialNoInbox'
 import { ddmm, podeAgendar } from '../lib/agendamento'
 
 type Conv = {
@@ -876,7 +877,7 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                 )}
                 {sel.status === 'humano_comercial' ? (
                   <span className="text-[11px] font-mono px-2.5 py-1.5 rounded-lg border border-gold/50 text-gold bg-gold/10"
-                    title="Lead de posse de um vendedor do Comercial Humano — devolução e registro de ligações na aba ☎️ Comercial">
+                    title="Lead de posse de um vendedor do Comercial Humano — ligações e devolução na barra logo abaixo">
                     ☎️ Comercial Humano
                   </span>
                 ) : sel.status === 'human' ? (
@@ -897,6 +898,13 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
               </div>
             </div>
 
+            {/* ☎️ Comercial Humano no Inbox (itens 1 e 6, 16/10): puxar p/ pipeline + registros do card */}
+            <ComercialNoInbox convId={sel.id} status={sel.status} nome={sel.contacts?.name || fmtFone(sel.contacts?.phone)}
+              optedOut={!!sel.contacts?.opted_out} isAdmin={isAdmin} meuEmail={meuEmail} vendedores={vendedores}
+              aoMudarStatus={(status, responsavel) => {
+                setSel(s => (s && s.id === sel.id ? { ...s, status, responsavel_email: responsavel ?? s.responsavel_email } : s))
+                carregarConvs()
+              }} />
             <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-2">
               {msgTpl && !kb && (
                 <div className="rise self-center text-xs rounded-lg border border-win/40 bg-win/10 text-win px-3 py-2">{msgTpl}</div>

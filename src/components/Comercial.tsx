@@ -3,6 +3,7 @@ import { supabase, AGENT_LABEL, fmtFone, fmtHora } from '../lib/supabase'
 import ComercialMetricas from './ComercialMetricas'
 import AgendarModal, { useReguaAberta } from './AgendarModal'
 import { podeAgendar } from '../lib/agendamento'
+import { MOTIVOS, ATIV_LABEL, ESTRATO_CLS, diasRestantes } from '../lib/comercial'
 
 // ============================================================
 // Comercial Humano — vendedores por telefone assumem leads que a
@@ -27,15 +28,7 @@ type Atividade = { id: string; assignment_id: string; tipo: string; nota: string
 type VendaCard = { produto: string | null; valor: number | null; pago_em: string | null; aluno: string | null }
 type DadosLead = { a: Assignment; ct: { name: string | null; phone: string; tags: string[]; client_memory: any; source_first: any } }
 
-const MOTIVOS = ['sem_interesse', 'sem_dinheiro_agora', 'preco', 'vai_pensar', 'concorrente', 'sem_contato', 'telefone_invalido', 'outro']
 const OBJECOES = ['preço', 'sem tempo p/ estudar', 'vai pensar', 'cônjuge/família', 'concorrente', 'medo de não passar', 'espera o edital']
-const ATIV_LABEL: Record<string, string> = {
-  ligacao_atendida: '📞 Atendida', ligacao_nao_atendida: '📵 Não atendeu',
-  ligacao_agendada: '🗓 Agendada', whatsapp: '💬 WhatsApp', nota: '📝 Nota',
-}
-const ESTRATO_CLS: Record<string, string> = {
-  A: 'border-gold/60 text-gold bg-gold/10', B: 'border-teal/50 text-teal bg-teal/10', C: 'border-line text-dim',
-}
 const FASE_LABEL = ['1 · Situação', '2 · Problema', '3 · Valor', '4 · Oferta']
 
 // espelho SIMPLIFICADO do canal_map do Data Core — só para exibição
@@ -67,10 +60,6 @@ async function fetchAll<T>(monta: (de: number, ate: number) => any): Promise<T[]
     if (page.length < 1000) break
   }
   return out
-}
-
-function diasRestantes(expiresAt: string) {
-  return Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 86400000))
 }
 
 export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId = null, meuTipo = null }:
