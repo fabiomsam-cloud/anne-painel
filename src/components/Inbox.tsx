@@ -18,6 +18,18 @@ type Msg = {
 type Template = { name: string; body: string; buttons: string[]; category: string }
 // 🔒 nota interna (migration 42): tabela própria — nunca vai ao lead, nunca entra no histórico da IA
 type Nota = { id: string; conversation_id: string; autor_email: string; content: string; created_at: string }
+// ⏰ mensagem agendada pelo humano dentro da janela (migration 44): cancela sozinha se o lead responder antes
+type Agendada = {
+  id: string; conversation_id: string; autor_email: string; content: string; scheduled_at: string
+  status: 'scheduled' | 'sent' | 'cancelled' | 'failed'; motivo: string | null; created_at: string; resolved_at: string | null
+}
+const MOTIVO_AGENDADA: Record<string, string> = {
+  lead_respondeu: 'o lead respondeu antes', cancelada_pelo_humano: 'cancelada pela equipe',
+  conversa_saiu_do_humano: 'a conversa saiu do atendimento humano', janela_fechada: 'a janela de 24h fechou',
+  opt_out: 'o lead pediu para não receber mensagens', atrasada: 'a rotina de envio ficou parada e passou da hora',
+}
+// datetime-local trabalha em horário local do navegador
+const localIso = (ms: number) => new Date(ms - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 
 const TEMPLATES_URL = 'https://workflows.manager03.scvpgti.com.br/webhook/anne/meta/templates'
 const SEND_TPL_URL = 'https://workflows.manager03.scvpgti.com.br/webhook/anne/meta/send-template'
@@ -173,6 +185,10 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
   const [modoNota, setModoNota] = useState(false)
   const [notaTexto, setNotaTexto] = useState('')
   const [salvandoNota, setSalvandoNota] = useState(false)
+  // ⏰ mensagens agendadas da conversa aberta (pendentes + resolvidas nas últimas 48h) e o painel de agendar
+  const [agendadas, setAgendadas] = useState<Agendada[]>([])
+  const [agendarMsg, setAgendarMsg] = useState(false)
+  const [dtMsg, setDtMsg] = useState('')
   const [followup, setFollowup] = useState<any>(null)
   const [agora, setAgora] = useState(Date.now())
   const [tpls, setTpls] = useState<Template[]>([])
@@ -389,6 +405,12 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
       .from('inbox_notas').select('id,conversation_id,autor_email,content,created_at')
       .eq('conversation_id', convId).order('created_at', { ascending: true }).limit(200)
     setNotas((nt as any) ?? [])
+    const { data: ag } = await supabase
+      .from('mensagens_agendadas').select('id,conversation_id,autor_email,content,scheduled_at,status,motivo,created_at,resolved_at')
+      .eq('conversation_id', convId)
+      .or(`status.eq.scheduled,resolved_at.gte.${new Date(Date.now() - 48 * 3600000).toISOString()}`)
+      .order('scheduled_at', { ascending: true }).limit(50)
+    setAgendadas((ag as any) ?? [])
     const { data: fq } = await supabase
       .from('followup_queue').select('current_step,due_at,status')
       .eq('conversation_id', convId).eq('status', 'scheduled').maybeSingle()
@@ -414,6 +436,14 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
       .on('postgres_changes',
         { event: 'DELETE', schema: 'public', table: 'inbox_notas' },
         payload => setNotas(n => n.filter(x => x.id !== (payload.old as { id?: string }).id)))
+      // agendada criada/cancelada/enviada (por colega, pelo lead responder ou pela rotina) → reflete na hora
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'mensagens_agendadas', filter: `conversation_id=eq.${sel.id}` },
+        payload => {
+          const a = payload.new as Agendada
+          if (!a?.id) return
+          setAgendadas(as => as.some(x => x.id === a.id) ? as.map(x => (x.id === a.id ? a : x)) : [...as, a])
+        })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [sel?.id])
@@ -446,6 +476,33 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
     const { error } = await supabase.from('inbox_notas').delete().eq('id', n.id)
     if (error) return setMsgTpl('⚠️ Não consegui apagar a nota: ' + error.message)
     setNotas(ns => ns.filter(x => x.id !== n.id))
+  }
+
+  // ⏰ agendar a mensagem do composer para mais tarde, dentro da janela de 24h.
+  // O envio é da rotina do banco (pg_cron, migration 44); se o lead responder antes, cancela sozinha.
+  const fimJanela = sel?.last_user_message_at ? new Date(sel.last_user_message_at).getTime() + JANELA_MS : 0
+  const agendarMensagem = async (quando: Date) => {
+    if (!sel || !texto.trim() || enviando) return
+    const ms = quando.getTime()
+    if (ms < Date.now() + 60000) return setMsgTpl('⚠️ Escolha um horário pelo menos 1 minuto à frente.')
+    if (ms > fimJanela - 60000) return setMsgTpl(`⚠️ A janela de 24h fecha às ${fmtHora(new Date(fimJanela).toISOString())} — agende antes disso ou mande agora.`)
+    setEnviando(true)
+    const { data, error } = await supabase.from('mensagens_agendadas')
+      .insert({ conversation_id: sel.id, content: texto.trim(), scheduled_at: quando.toISOString(), autor_email: meuEmail })
+      .select('id,conversation_id,autor_email,content,scheduled_at,status,motivo,created_at,resolved_at').single()
+    setEnviando(false)
+    if (error) return setMsgTpl('⚠️ Não consegui agendar: ' + error.message)
+    setAgendadas(as => as.some(x => x.id === (data as Agendada).id) ? as : [...as, data as Agendada])
+    setTexto(''); setAgendarMsg(false); setDtMsg('')
+    carimbarResponsavel()
+    setMsgTpl(`⏰ Mensagem agendada para ${fmtHora((data as Agendada).scheduled_at)} — cancela sozinha se o lead responder antes.`)
+  }
+  const cancelarAgendada = async (a: Agendada) => {
+    const { error } = await supabase.from('mensagens_agendadas')
+      .update({ status: 'cancelled', motivo: 'cancelada_pelo_humano', resolved_at: new Date().toISOString() })
+      .eq('id', a.id).eq('status', 'scheduled')
+    if (error) return setMsgTpl('⚠️ Não consegui cancelar: ' + error.message)
+    setAgendadas(as => as.map(x => (x.id === a.id ? { ...x, status: 'cancelled', motivo: 'cancelada_pelo_humano' } : x)))
   }
 
   // mantém a conversa aberta em sincronia com o realtime (janela 24h, status)
@@ -927,6 +984,11 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                   {m.metadata?.followup_step && (
                     <div className="text-[10px] font-mono text-gold/80 mb-1">⏰ follow-up · toque {m.metadata.followup_step}</div>
                   )}
+                  {m.metadata?.agendada && (
+                    <div className="text-[10px] font-mono text-teal/80 mb-1" title={`Agendada por ${m.metadata.autor_email ?? 'equipe'}`}>
+                      ⏰ enviada por agendamento{m.metadata.agendada_para ? ` · marcada para ${fmtHora(m.metadata.agendada_para)}` : ''}
+                    </div>
+                  )}
                   {m.type === 'audio' && (
                     <div className="text-[10px] font-mono text-dim mb-1">
                       🎙 {m.from_type === 'human' ? 'áudio do atendente' : 'áudio transcrito'}
@@ -951,6 +1013,23 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                   </div>
                 </div>
               ) })())}
+              {/* ⏰ agendadas: pendentes como balão tracejado no fim da thread; as que não saíram (48h) viram aviso */}
+              {agendadas.filter(a => a.status !== 'sent').map(a => a.status === 'scheduled' ? (
+                <div key={'a' + a.id} className="rise self-end max-w-[78%] border border-dashed border-teal/50 bg-teal/5 rounded-2xl px-3.5 py-2"
+                  title="Será enviada pela rotina na hora marcada; se o lead responder antes, é cancelada">
+                  <div className="text-[10px] font-mono text-teal/90 mb-1 flex items-center gap-2">
+                    <span>⏰ Agendada para {fmtHora(a.scheduled_at)} · cancela se o lead responder</span>
+                    <button onClick={() => cancelarAgendada(a)} title="Cancelar envio"
+                      className="ml-auto opacity-60 hover:opacity-100 hover:text-danger transition">✕ cancelar</button>
+                  </div>
+                  <div className="text-sm whitespace-pre-wrap break-words text-cream/80">{a.content}</div>
+                </div>
+              ) : (
+                <div key={'a' + a.id} className="rise self-center text-[11px] text-dim border border-line bg-panel rounded-lg px-3 py-1.5 max-w-[88%]"
+                  title={a.content}>
+                  ⏰ Agendada para {fmtHora(a.scheduled_at)} <b className="text-cream/80">não foi enviada</b>: {MOTIVO_AGENDADA[a.motivo ?? ''] ?? a.motivo ?? a.status}
+                </div>
+              ))}
               <div ref={fimRef} />
             </div>
 
@@ -1003,19 +1082,46 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                   </div>
                 </div>
               ) : (
-              <form onSubmit={enviar} className="p-4 border-t border-line flex gap-2">
+              <>
+              {agendarMsg && comHumano(sel.status) && (
+                <div className="px-4 pt-3 border-t border-line space-y-2 text-[11px]">
+                  <div className="text-dim">
+                    ⏰ <b className="text-cream">Agendar esta mensagem</b> · sai sozinha na hora marcada · <b className="text-cream">cancela se o lead responder antes</b> ·
+                    janela fecha às {fmtHora(new Date(fimJanela).toISOString())}
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap items-center">
+                    {([[30, '+30 min'], [60, '+1 h'], [120, '+2 h'], [240, '+4 h']] as const).map(([min, lbl]) => (
+                      <button key={min} type="button" disabled={!texto.trim() || Date.now() + min * 60000 > fimJanela - 60000}
+                        onClick={() => agendarMensagem(new Date(Date.now() + min * 60000))}
+                        className="px-2.5 py-1.5 rounded-lg border border-teal/40 text-teal hover:bg-teal/10 disabled:opacity-30 transition">{lbl}</button>
+                    ))}
+                    <input type="datetime-local" value={dtMsg} onChange={e => setDtMsg(e.target.value)}
+                      min={localIso(Date.now() + 2 * 60000)} max={localIso(fimJanela - 60000)}
+                      className="bg-panel border border-line rounded-lg px-2 py-1.5 text-xs text-cream focus:outline-none focus:border-teal/60" />
+                    <button type="button" disabled={!dtMsg || !texto.trim()} onClick={() => agendarMensagem(new Date(dtMsg))}
+                      className="px-3 py-1.5 rounded-lg bg-teal/15 text-teal border border-teal/40 font-semibold hover:bg-teal/25 disabled:opacity-30 transition">Agendar</button>
+                    <button type="button" onClick={() => setAgendarMsg(false)} className="px-2 py-1.5 text-dim hover:text-cream transition">✕</button>
+                  </div>
+                  {!texto.trim() && <div className="text-dim/70">Escreva a mensagem no campo abaixo e escolha o horário.</div>}
+                </div>
+              )}
+              <form onSubmit={enviar} className={`p-4 flex gap-2 ${agendarMsg ? 'pt-2' : 'border-t border-line'}`}>
                 <input value={texto} onChange={e => setTexto(e.target.value)}
-                  placeholder={comHumano(sel.status) ? 'Responder como humano…' : 'Assuma a conversa para responder (IA está atendendo)'}
+                  placeholder={comHumano(sel.status) ? (agendarMsg ? 'Mensagem que será enviada na hora marcada…' : 'Responder como humano…') : 'Assuma a conversa para responder (IA está atendendo)'}
                   disabled={!comHumano(sel.status)}
                   className="flex-1 bg-panel border border-line rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-gold/60 disabled:opacity-40 placeholder:text-dim/50" />
                 <button type="button" onClick={gravar} disabled={!comHumano(sel.status)}
                   title="Gravar áudio para o lead (vira nota de voz no WhatsApp)"
                   className="border border-line text-dim rounded-xl px-3.5 text-lg disabled:opacity-30 hover:text-gold hover:border-gold/40 transition">🎤</button>
+                <button type="button" onClick={() => setAgendarMsg(v => !v)} disabled={!comHumano(sel.status)}
+                  title="Agendar o envio desta mensagem para mais tarde (dentro da janela; cancela se o lead responder antes)"
+                  className={`border rounded-xl px-3.5 text-lg disabled:opacity-30 transition ${agendarMsg ? 'border-teal/60 text-teal bg-teal/10' : 'border-line text-dim hover:text-teal hover:border-teal/40'}`}>⏰</button>
                 <button disabled={!comHumano(sel.status) || !texto.trim() || enviando}
                   className="bg-gold text-ink font-semibold rounded-xl px-5 text-sm disabled:opacity-30 hover:brightness-110 transition">
                   Enviar
                 </button>
               </form>
+              </>
               )
             ) : (
               <div className="p-4 border-t border-line space-y-2">
