@@ -368,14 +368,49 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
     setNotif(ok); prefGravar('inbox_notif', ok)
   }
 
+  // INCIDENTE 16/10: este canal recarregava a lista INTEIRA (4 consultas) a cada UPDATE de QUALQUER
+  // conversa. Com o disparo da Black tocando ~25 conversas/min, um vendedor gerou 4 mil requisições em
+  // 5 min e o PostgREST foi a p90 de 4 s — "Escalações demorando" era isso. Agora:
+  //  · UPDATE de conversa que JÁ está na lista → aplica os campos na hora, sem consulta;
+  //  · conversa nova/fora da lista → recarga agrupada: 3 s se virou relevante p/ humano, 20 s se não.
+  const recargaTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pedirRecarga = (ms: number) => {
+    if (recargaTimer.current) return
+    recargaTimer.current = setTimeout(() => { recargaTimer.current = null; carregarConvs() }, ms)
+  }
+  const aoMudarConversa = (payload: { eventType: string; new: any; old: any }) => {
+    const n = payload.new as Partial<Conv> | null
+    if (payload.eventType === 'UPDATE' && n?.id) {
+      if (convsRef.current.some(c => c.id === n.id)) {
+        setConvs(cs => cs
+          .map(c => c.id !== n.id ? c : {
+            ...c,
+            status: n.status ?? c.status, current_agent_slug: n.current_agent_slug ?? c.current_agent_slug,
+            last_message_at: n.last_message_at ?? c.last_message_at, last_user_message_at: n.last_user_message_at ?? c.last_user_message_at,
+            read_at: n.read_at === undefined ? c.read_at : n.read_at,
+            responsavel_email: n.responsavel_email === undefined ? c.responsavel_email : n.responsavel_email,
+            contexto: n.contexto ?? c.contexto,
+          })
+          .sort((a, b) => String(b.last_message_at ?? '').localeCompare(String(a.last_message_at ?? ''))))
+        return
+      }
+      const me = meuEmailRef.current
+      const relevanteNova = comHumano(n.status ?? '') || (!!me && (n.responsavel_email ?? '').toLowerCase() === me)
+      pedirRecarga(relevanteNova ? 3000 : 20000)
+      return
+    }
+    pedirRecarga(payload.eventType === 'DELETE' ? 3000 : 15000)
+  }
   useEffect(() => {
     carregarConvs()
     const ch = supabase.channel('inbox-convs')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, carregarConvs)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, aoMudarConversa)
       .subscribe()
     // relógio p/ contagem regressiva da janela 24h
     const t = setInterval(() => setAgora(Date.now()), 30000)
-    return () => { supabase.removeChannel(ch); clearInterval(t) }
+    // refresh de segurança: a lista se realinha com o banco a cada 2 min mesmo sem evento
+    const r = setInterval(() => { if (abaVisivel()) carregarConvs() }, 120000)
+    return () => { supabase.removeChannel(ch); clearInterval(t); clearInterval(r); if (recargaTimer.current) clearTimeout(recargaTimer.current) }
   }, [])
 
   // templates aprovados: carrega quando abrir uma conversa com janela fechada

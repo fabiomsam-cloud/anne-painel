@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { coalescer } from '../lib/coalescer'
 import { supabase, AGENT_LABEL, STATUS_META, PIPELINE_COLS, pipelineCol, fmtHora, fmtFone } from '../lib/supabase'
 
 type Conv = {
@@ -40,8 +41,10 @@ export default function Kanban() {
   }
   useEffect(() => {
     carregar()
+    // rajada de updates (disparo/Sender) → UMA recarga a cada 10 s, não uma por evento (incidente 16/10)
+    const recarregar = coalescer(carregar, 10000)
     const ch = supabase.channel('kanban')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, carregar)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, recarregar)
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [])

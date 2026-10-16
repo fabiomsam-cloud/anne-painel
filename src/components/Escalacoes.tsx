@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { coalescer } from '../lib/coalescer'
 import { supabase, fmtHora, fmtFone } from '../lib/supabase'
 import AgendarModal, { useReguaAberta } from './AgendarModal'
 import { podeAgendar } from '../lib/agendamento'
@@ -26,13 +27,19 @@ export default function Escalacoes({ irParaInbox, isAdmin = false }:
   // botão de agendar: régua aberta para todos OU admin (migration 38f)
   const reguaAberta = useReguaAberta()
 
+  // 16/10: estado de carregamento próprio — antes a tela mostrava "Nenhuma escalação pendente"
+  // enquanto a lista ainda nem tinha chegado (o contador da barra lateral já marcava 5)
+  const [carregando, setCarregando] = useState(true)
+  const [erroCarga, setErroCarga] = useState('')
   const carregar = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('escalations')
       .select('id,reason,question_text,status,claimed_by,created_at,resolved_at,conversations(id,status,contacts(name,phone))')
       .order('created_at', { ascending: false })
       .limit(100)
-    setEscs((data as any) ?? [])
+    if (error) setErroCarga(error.message)
+    else { setErroCarga(''); setEscs((data as any) ?? []) }
+    setCarregando(false)
   }
 
   useEffect(() => {
@@ -43,8 +50,9 @@ export default function Escalacoes({ irParaInbox, isAdmin = false }:
 
   useEffect(() => {
     carregar()
+    const recarregar = coalescer(carregar, 2000)
     const ch = supabase.channel('escs')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'escalations' }, carregar)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'escalations' }, recarregar)
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [])
@@ -213,7 +221,18 @@ export default function Escalacoes({ irParaInbox, isAdmin = false }:
             </div>
           </div>
         )}
-        {lista.length === 0 && (
+        {carregando ? (
+          <div className="text-center py-16 text-dim">
+            <div className="text-2xl mb-3 animate-pulse">⏳</div>
+            <div className="text-sm">Carregando escalações…</div>
+          </div>
+        ) : erroCarga ? (
+          <div className="text-center py-16 text-danger">
+            <div className="text-sm">Não consegui carregar as escalações: {erroCarga}</div>
+            <button onClick={() => { setCarregando(true); carregar() }}
+              className="mt-3 text-xs border border-line rounded-lg px-3 py-1.5 text-dim hover:text-cream transition">Tentar de novo</button>
+          </div>
+        ) : lista.length === 0 && (
           <div className="text-center py-16 text-dim">
             <div className="text-4xl mb-3">✅</div>
             <div className="text-sm">Nenhuma escalação pendente — a Anne está dando conta.</div>
