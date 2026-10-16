@@ -19,7 +19,8 @@ type Assignment = {
   estrato: string; status: string; motivo_perda: string | null; venda_valor: number | null
   assigned_at: string; expires_at: string; closed_at: string | null
   contacts: { name: string | null; phone: string; source_first: any } | null
-  conversations: { current_agent_slug: string } | null
+  // last_*: quem falou por último na conversa — o lead que respondeu e espera retorno sobe na coluna (15/10)
+  conversations: { current_agent_slug: string; last_user_message_at: string | null; last_message_at: string | null } | null
 }
 type Atividade = { id: string; assignment_id: string; tipo: string; nota: string | null; agendada_para: string | null; created_at: string }
 // venda da Hubla casada com o card (mesma regra do motor: 1ª venda paga após a atribuição)
@@ -95,6 +96,7 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
   const [trocaSenha, setTrocaSenha] = useState(false)
   const [senha, setSenha] = useState({ a: '', b: '' })
   const [msg, setMsg] = useState('')
+  const [buscaPipe, setBuscaPipe] = useState('')   // 🔍 nome ou telefone no pipeline (15/10)
   const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(''), 6000) }
 
   const salvarSenha = async () => {
@@ -125,7 +127,7 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
     if (!vendSel) { setCards([]); return }
     // ativos + fechados dos últimos 45 dias (histórico recente do vendedor)
     const { data } = await supabase.from('lead_assignments')
-      .select('*,contacts(name,phone,source_first),conversations(current_agent_slug)')
+      .select('*,contacts(name,phone,source_first),conversations(current_agent_slug,last_user_message_at,last_message_at)')
       .eq('vendedor_id', vendSel)
       .neq('status', 'agendado')   // saiu para o 🗓 Agendamento: fora do pipeline e das taxas
       .or(`status.eq.ativo,closed_at.gte.${new Date(Date.now() - 45 * 86400000).toISOString()}`)
@@ -168,6 +170,21 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
   useEffect(() => {
     const ch = supabase.channel('comercial-cards')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'lead_assignments' }, carregarCards)
+      // mensagem nova em qualquer conversa: só atualiza os carimbos do card dela (sem refazer as 4 queries),
+      // para o lead que respondeu subir na coluna na hora e descer quando alguém responder
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+        const n = payload.new as { conversation_id: string; from_type: string; created_at: string }
+        setCards(cs => cs.some(c => c.conversation_id === n.conversation_id)
+          ? cs.map(c => c.conversation_id !== n.conversation_id ? c : {
+              ...c,
+              conversations: {
+                current_agent_slug: c.conversations?.current_agent_slug ?? '',
+                last_user_message_at: n.from_type === 'user' ? n.created_at : (c.conversations?.last_user_message_at ?? null),
+                last_message_at: n.created_at,
+              },
+            })
+          : cs)
+      })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [vendSel])
@@ -250,12 +267,36 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
     { id: 'matriculado', label: 'Matriculados 🏆', hint: 'venda confirmada', cor: 'border-t-win' },
     { id: 'perdido', label: 'Devolvidos', hint: 'com motivo registrado', cor: 'border-t-line' },
   ]
+  // lead "respondeu" = a última mensagem da conversa é DELE (está esperando retorno) → instante dela, senão 0
+  const esperando = (a: Assignment): number => {
+    const cv = a.conversations
+    if (!cv?.last_user_message_at) return 0
+    const u = new Date(cv.last_user_message_at).getTime()
+    const l = cv.last_message_at ? new Date(cv.last_message_at).getTime() : 0
+    return u >= l ? u : 0
+  }
+  // 🔍 busca por nome ou telefone (só nos cards já carregados — o pipeline é do vendedor, cabe inteiro)
+  const bateBusca = (a: Assignment): boolean => {
+    const q = buscaPipe.trim().toLowerCase()
+    if (!q) return true
+    const digitos = q.replace(/\D/g, '')
+    if (digitos.length >= 3 && (a.contacts?.phone ?? '').includes(digitos)) return true
+    return (a.contacts?.name ?? '').toLowerCase().includes(q)
+  }
   const porColuna = useMemo(() => {
     const m: Record<string, Assignment[]> = {}
     for (const c of COLS) m[c.id] = []
-    for (const a of cards) m[colunaDoCard(a)]?.push(a)
+    for (const a of cards) if (bateBusca(a)) m[colunaDoCard(a)]?.push(a)
+    // dentro de cada coluna: quem respondeu e espera retorno primeiro (resposta mais recente no topo);
+    // o resto mantém a ordem do banco (mais recente recebido primeiro)
+    for (const id of Object.keys(m)) {
+      m[id] = m[id].map((a, i) => ({ a, i, e: esperando(a) }))
+        .sort((x, y) => (y.e - x.e) || (x.i - y.i))
+        .map(x => x.a)
+    }
     return m
-  }, [cards, ativs])
+  }, [cards, ativs, buscaPipe])
+  const nEsperando = useMemo(() => cards.filter(a => a.status === 'ativo' && esperando(a) > 0).length, [cards])
 
   // régua do vendedor: TODAS as ligações agendadas pendentes (atrasada = vermelha)
   const agenda = useMemo(() => {
@@ -312,8 +353,12 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
                 {vendedores.find(v => v.id === meuVendedorId)?.nome ?? 'Meu pipeline'}
               </span>
             )}
+            <input value={buscaPipe} onChange={e => setBuscaPipe(e.target.value)}
+              placeholder="🔍 nome ou telefone" title="Filtra os cards do pipeline por nome ou telefone"
+              className={inp + ' w-48'} />
             <span className="text-[11px] text-dim">
               {porColuna.recebido.length + porColuna.cadencia.length + porColuna.agendado.length} em posse ·
+              {nEsperando > 0 && <> <b className="text-gold">💬 {nEsperando} esperando resposta</b> · </>}
               abra 📇 Dados do lead antes de ligar · registre CADA tentativa
             </span>
             {!isAdmin && (
@@ -371,8 +416,9 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
                         const dias = diasRestantes(a.expires_at)
                         const nAt = contar(a, 'ligacao_atendida'), nNao = contar(a, 'ligacao_nao_atendida')
                         const agendaCard = proxAgendada(a)
+                        const esp = esperando(a)
                         return (
-                          <div key={a.id} className="bg-panel border border-line rounded-xl p-3 space-y-2">
+                          <div key={a.id} className={`bg-panel border rounded-xl p-3 space-y-2 ${esp && a.status === 'ativo' ? 'border-gold/50 shadow-[0_0_0_1px_rgba(212,175,55,0.15)]' : 'border-line'}`}>
                             <div className="flex items-center gap-2">
                               <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${ESTRATO_CLS[a.estrato]}`}>{a.estrato}</span>
                               <span className="text-sm font-medium truncate">{a.contacts?.name || fmtFone(a.contacts?.phone)}</span>
@@ -381,6 +427,11 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
                                   title="Dias restantes de posse (14 no total)">⏳{dias}d</span>
                               )}
                             </div>
+                            {esp > 0 && (
+                              <div className="text-[11px] text-gold font-medium" title="A última mensagem da conversa é do lead — ele está esperando retorno">
+                                💬 Respondeu · {fmtHora(a.conversations!.last_user_message_at)} · aguardando você
+                              </div>
+                            )}
                             <div className="flex items-center gap-1.5 text-[10px] text-dim font-mono flex-wrap">
                               <span>{fmtFone(a.contacts?.phone)}</span>
                               <span className="px-1.5 py-0.5 rounded border border-line">{canalDoLead(a.contacts?.source_first)}</span>

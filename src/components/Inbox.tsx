@@ -15,6 +15,8 @@ type Msg = {
   status: string; created_at: string; metadata: any; agent_slug: string | null
 }
 type Template = { name: string; body: string; buttons: string[]; category: string }
+// 🔒 nota interna (migration 42): tabela própria — nunca vai ao lead, nunca entra no histórico da IA
+type Nota = { id: string; conversation_id: string; autor_email: string; content: string; created_at: string }
 
 const TEMPLATES_URL = 'https://workflows.manager03.scvpgti.com.br/webhook/anne/meta/templates'
 const SEND_TPL_URL = 'https://workflows.manager03.scvpgti.com.br/webhook/anne/meta/send-template'
@@ -165,6 +167,11 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
   const [busca, setBusca] = useState('')
   const [texto, setTexto] = useState('')
   const [enviando, setEnviando] = useState(false)
+  // 🔒 notas internas da conversa aberta + modo do composer (mensagem ao lead × nota só p/ equipe)
+  const [notas, setNotas] = useState<Nota[]>([])
+  const [modoNota, setModoNota] = useState(false)
+  const [notaTexto, setNotaTexto] = useState('')
+  const [salvandoNota, setSalvandoNota] = useState(false)
   const [followup, setFollowup] = useState<any>(null)
   const [agora, setAgora] = useState(Date.now())
   const [tpls, setTpls] = useState<Template[]>([])
@@ -377,6 +384,10 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
       .order('created_at', { ascending: true })
       .limit(300)
     setMsgs((data as any) ?? [])
+    const { data: nt } = await supabase
+      .from('inbox_notas').select('id,conversation_id,autor_email,content,created_at')
+      .eq('conversation_id', convId).order('created_at', { ascending: true }).limit(200)
+    setNotas((nt as any) ?? [])
     const { data: fq } = await supabase
       .from('followup_queue').select('current_step,due_at,status')
       .eq('conversation_id', convId).eq('status', 'scheduled').maybeSingle()
@@ -385,6 +396,7 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
 
   useEffect(() => {
     if (!sel) return
+    setModoNota(false); setNotaTexto('')
     carregarMsgs(sel.id)
     const ch = supabase.channel(`thread-${sel.id}`)
       .on('postgres_changes',
@@ -394,11 +406,46 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
           // conversa aberta E aba na frente: mensagem nova do lead já nasce lida (em aba esquecida, não)
           if ((payload.new as Msg).from_type === 'user' && abaVisivel()) marcarLida(sel)
         })
+      // nota de um colega entra/sai da thread sem recarregar (quem salvou já a tem na tela: dedupe por id)
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'inbox_notas', filter: `conversation_id=eq.${sel.id}` },
+        payload => setNotas(n => n.some(x => x.id === (payload.new as Nota).id) ? n : [...n, payload.new as Nota]))
+      .on('postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'inbox_notas' },
+        payload => setNotas(n => n.filter(x => x.id !== (payload.old as { id?: string }).id)))
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [sel?.id])
 
-  useEffect(() => { fimRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs.length])
+  useEffect(() => { fimRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs.length, notas.length])
+
+  // thread = mensagens + notas internas em ordem cronológica (a nota fica onde foi escrita)
+  const linhaTempo: ({ k: 'm'; t: string; m: Msg } | { k: 'n'; t: string; n: Nota })[] = [
+    ...msgs.map(m => ({ k: 'm' as const, t: m.created_at, m })),
+    ...notas.map(n => ({ k: 'n' as const, t: n.created_at, n })),
+  ].sort((a, b) => a.t.localeCompare(b.t))
+
+  // 🔒 salvar nota: só a equipe vê; não carimba responsável, não mexe no status nem na janela
+  const salvarNota = async (e?: React.FormEvent) => {
+    e?.preventDefault()
+    if (!sel || !notaTexto.trim() || salvandoNota) return
+    setSalvandoNota(true)
+    const { data, error } = await supabase.from('inbox_notas')
+      .insert({ conversation_id: sel.id, content: notaTexto.trim(), autor_email: meuEmail })
+      .select('id,conversation_id,autor_email,content,created_at').single()
+    if (error) setMsgTpl('⚠️ Não consegui salvar a nota: ' + error.message)
+    else {
+      setNotas(n => n.some(x => x.id === (data as Nota).id) ? n : [...n, data as Nota])
+      setNotaTexto('')
+    }
+    setSalvandoNota(false)
+  }
+  const apagarNota = async (n: Nota) => {
+    if (!window.confirm('Apagar esta nota interna?')) return
+    const { error } = await supabase.from('inbox_notas').delete().eq('id', n.id)
+    if (error) return setMsgTpl('⚠️ Não consegui apagar a nota: ' + error.message)
+    setNotas(ns => ns.filter(x => x.id !== n.id))
+  }
 
   // mantém a conversa aberta em sincronia com o realtime (janela 24h, status)
   useEffect(() => {
@@ -854,7 +901,20 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
               {msgTpl && !kb && (
                 <div className="rise self-center text-xs rounded-lg border border-win/40 bg-win/10 text-win px-3 py-2">{msgTpl}</div>
               )}
-              {msgs.map(m => (
+              {linhaTempo.map(item => item.k === 'n' ? (
+                <div key={'n' + item.n.id} className="rise self-center w-[88%] border border-dashed border-gold/50 bg-gold/5 rounded-xl px-3.5 py-2"
+                  title="Nota interna — só a equipe vê; não foi enviada ao lead e a IA não lê">
+                  <div className="text-[10px] font-mono text-gold/90 mb-1 flex items-center gap-2">
+                    <span>🔒 Nota interna · {nomeResp(item.n.autor_email) || item.n.autor_email}</span>
+                    <span className="ml-auto text-dim/70">{fmtHora(item.n.created_at)}</span>
+                    {(isAdmin || item.n.autor_email.toLowerCase() === meuEmail) && (
+                      <button onClick={() => apagarNota(item.n)} title="Apagar nota"
+                        className="opacity-40 hover:opacity-100 hover:text-danger transition">✕</button>
+                    )}
+                  </div>
+                  <div className="text-sm whitespace-pre-wrap break-words text-cream/90">{item.n.content}</div>
+                </div>
+              ) : (() => { const m = item.m; return (
                 <div key={m.id} className={`rise max-w-[78%] border rounded-2xl px-3.5 py-2 ${FROM_STYLE[m.from_type] ?? FROM_STYLE.system}`}>
                   {m.metadata?.followup_step && (
                     <div className="text-[10px] font-mono text-gold/80 mb-1">⏰ follow-up · toque {m.metadata.followup_step}</div>
@@ -882,11 +942,35 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                     <span>{m.from_type === 'ia' ? '🤖 ' : m.from_type === 'human' ? '👤 ' : ''}{fmtHora(m.created_at)}</span>
                   </div>
                 </div>
-              ))}
+              ) })())}
               <div ref={fimRef} />
             </div>
 
-            {jan.aberta ? (
+            {/* modo do composer: 💬 mensagem ao lead × 🔒 nota interna (modelo da Anne CS) */}
+            <div className="px-4 pt-2 border-t border-line flex items-center gap-1 text-[11px]">
+              <button onClick={() => setModoNota(false)}
+                className={`px-2.5 py-1 rounded-lg border transition ${!modoNota ? 'border-gold/60 bg-gold/10 text-cream' : 'border-transparent text-dim hover:text-cream'}`}>
+                💬 Mensagem
+              </button>
+              <button onClick={() => setModoNota(true)} title="Anotação só para a equipe — não vai para o lead nem para a IA"
+                className={`px-2.5 py-1 rounded-lg border transition ${modoNota ? 'border-gold/60 bg-gold/10 text-cream' : 'border-transparent text-dim hover:text-cream'}`}>
+                🔒 Nota interna{notas.length ? <span className="font-mono text-gold/80"> · {notas.length}</span> : null}
+              </button>
+              {modoNota && <span className="text-dim/80 ml-1 hidden sm:inline">só a equipe vê · não vai para o lead nem para a IA</span>}
+            </div>
+            <div className="[&>*]:border-t-0">
+            {modoNota ? (
+              <form onSubmit={salvarNota} className="p-4 pt-2 flex gap-2 items-end">
+                <textarea value={notaTexto} onChange={e => setNotaTexto(e.target.value)} rows={2}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); salvarNota() } }}
+                  placeholder="Nota interna: só a equipe vê. Não vai para o lead nem para a IA. (Enter salva · Shift+Enter quebra linha)"
+                  className="flex-1 bg-panel border border-dashed border-gold/40 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-gold/70 placeholder:text-dim/50 resize-none" />
+                <button disabled={!notaTexto.trim() || salvandoNota}
+                  className="border border-gold/60 text-gold font-semibold rounded-xl px-4 py-2.5 text-sm disabled:opacity-30 hover:bg-gold/10 transition">
+                  {salvandoNota ? 'Salvando…' : '🔒 Salvar nota'}
+                </button>
+              </form>
+            ) : jan.aberta ? (
               audioPronto ? (
                 <div className="p-4 border-t border-line flex items-center gap-2">
                   <audio controls src={audioPronto.url} className="flex-1 h-10 min-w-0" />
@@ -959,6 +1043,7 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                 )}
               </div>
             )}
+            </div>
           </>
         )}
       </div>
