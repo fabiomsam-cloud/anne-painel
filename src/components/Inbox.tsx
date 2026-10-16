@@ -189,6 +189,9 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
   const [agendadas, setAgendadas] = useState<Agendada[]>([])
   const [agendarMsg, setAgendarMsg] = useState(false)
   const [dtMsg, setDtMsg] = useState('')
+  // 📎 anexo do composer (imagem ≤ 5 MB ou vídeo MP4 ≤ 16 MB — limites da Meta); sobe no bucket inbox-media
+  const [anexo, setAnexo] = useState<{ file: File; url: string; kind: 'image' | 'video' } | null>(null)
+  const anexoRef = useRef<HTMLInputElement>(null)
   const [followup, setFollowup] = useState<any>(null)
   const [agora, setAgora] = useState(Date.now())
   const [tpls, setTpls] = useState<Template[]>([])
@@ -572,7 +575,9 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
 
   const enviar = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!sel || !texto.trim() || enviando) return
+    if (!sel || enviando) return
+    if (anexo) return enviarAnexo()
+    if (!texto.trim()) return
     setEnviando(true)
     const t = texto.trim()
     const { data: msg } = await supabase.from('messages').insert({
@@ -584,6 +589,45 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
     })
     carimbarResponsavel()
     setTexto(''); setEnviando(false)
+  }
+
+  // 📎 imagem/vídeo do atendente: valida pelos limites da Meta, sobe no bucket público inbox-media e
+  // enfileira a parte {type:'image'|'video', link, caption} — o texto do composer vira a legenda
+  const escolherAnexo = (f: File | null) => {
+    if (!f) return
+    const kind: 'image' | 'video' | null = /^image\/(jpeg|png|webp)$/.test(f.type) ? 'image' : f.type === 'video/mp4' ? 'video' : null
+    if (!kind) return setMsgTpl('⚠️ Formato não aceito pelo WhatsApp: use JPG, PNG, WebP ou vídeo MP4.')
+    const max = kind === 'image' ? 5 * 1024 * 1024 : 16 * 1024 * 1024
+    if (f.size > max) return setMsgTpl(`⚠️ Arquivo grande demais: o WhatsApp aceita até ${kind === 'image' ? '5 MB por imagem' : '16 MB por vídeo'}.`)
+    if (anexo) URL.revokeObjectURL(anexo.url)
+    setAnexo({ file: f, url: URL.createObjectURL(f), kind })
+  }
+  const descartarAnexo = () => { if (anexo) URL.revokeObjectURL(anexo.url); setAnexo(null); if (anexoRef.current) anexoRef.current.value = '' }
+  const enviarAnexo = async () => {
+    if (!sel || !anexo || enviando) return
+    setEnviando(true)
+    try {
+      const ext = anexo.kind === 'video' ? 'mp4' : (anexo.file.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg')
+      const caminho = `${sel.id}/${Date.now()}.${ext}`
+      const { error: eUp } = await supabase.storage.from('inbox-media').upload(caminho, anexo.file, { contentType: anexo.file.type })
+      if (eUp) throw eUp
+      const url = supabase.storage.from('inbox-media').getPublicUrl(caminho).data.publicUrl
+      const legenda = texto.trim()
+      const { data: msg } = await supabase.from('messages').insert({
+        conversation_id: sel.id, from_type: 'human', type: anexo.kind,
+        content: legenda || (anexo.kind === 'image' ? '🖼 Imagem enviada' : '🎬 Vídeo enviado'), status: 'queued',
+        metadata: { media_url: url, media_type: anexo.kind, media_name: anexo.file.name },
+      }).select('id').single()
+      await supabase.from('send_queue').insert({
+        conversation_id: sel.id, message_id: msg?.id ?? null,
+        phone: sel.contacts.phone, parts: [{ type: anexo.kind, link: url, caption: legenda }], priority: 1,
+      })
+      carimbarResponsavel()
+      descartarAnexo(); setTexto('')
+    } catch (err: any) {
+      setMsgTpl('⚠️ Falha ao enviar o arquivo: ' + (err?.message ?? err))
+    }
+    setEnviando(false)
   }
 
   // 🎤 áudio do atendente — grava no navegador, converte p/ MP3, sobe no bucket
@@ -1002,7 +1046,31 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                       📨 template{m.metadata?.janela_reaberta ? ' · reabertura de janela' : m.metadata?.broadcast ? ' · disparo' : ''}
                     </div>
                   )}
-                  <div className="text-sm whitespace-pre-wrap break-words">{m.transcript || m.content}</div>
+                  {/* mídia (16/10): do lead via Inbound+bucket, ou do atendente via 📎 */}
+                  {m.metadata?.media_url && (m.type === 'image' || m.metadata?.media_type === 'image') && (
+                    <a href={m.metadata.media_url} target="_blank" rel="noreferrer" title="Abrir a imagem em tamanho real">
+                      <img src={m.metadata.media_url} alt="imagem" loading="lazy" className="my-1 max-h-64 max-w-full rounded-lg border border-line" />
+                    </a>
+                  )}
+                  {m.metadata?.media_url && (m.type === 'video' || m.metadata?.media_type === 'video') && (
+                    <video controls preload="metadata" src={m.metadata.media_url} className="my-1 max-h-64 max-w-full rounded-lg border border-line" />
+                  )}
+                  {m.metadata?.media_url && (m.type === 'document' || m.metadata?.media_type === 'document') && (
+                    <a href={m.metadata.media_url} target="_blank" rel="noreferrer"
+                      className="inline-block my-1 text-xs border border-line rounded-lg px-2.5 py-1.5 hover:border-gold/40 transition">
+                      📄 {m.metadata.media_name || 'abrir documento'}
+                    </a>
+                  )}
+                  {!m.metadata?.media_url && ['image', 'video', 'document'].includes(m.type) && m.from_type === 'user' && (
+                    <div className="text-[10px] font-mono text-dim/70 mb-1">
+                      {m.type === 'image' ? '🖼' : m.type === 'video' ? '🎬' : '📄'} arquivo não disponível (recebido antes de 16/10 ou falha ao guardar)
+                    </div>
+                  )}
+                  {m.type === 'image' && m.transcript ? (
+                    <div className="text-xs whitespace-pre-wrap break-words text-cream/80 italic" title="Descrição automática por IA — não é confirmação de pagamento">{m.transcript}</div>
+                  ) : (
+                    <div className="text-sm whitespace-pre-wrap break-words">{m.transcript || m.content}</div>
+                  )}
                   <div className="text-[10px] font-mono text-dim/70 mt-1 text-right flex items-center justify-end gap-2">
                     {/* KB é conhecimento permanente de TODAS as conversas — inclusão só de admin (migration 20; RLS bloqueia por qualquer via) */}
                     {isAdmin && (
@@ -1105,20 +1173,37 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                   {!texto.trim() && <div className="text-dim/70">Escreva a mensagem no campo abaixo e escolha o horário.</div>}
                 </div>
               )}
-              <form onSubmit={enviar} className={`p-4 flex gap-2 ${agendarMsg ? 'pt-2' : 'border-t border-line'}`}>
+              {anexo && (
+                <div className={`px-4 pt-3 flex items-center gap-3 text-[11px] ${agendarMsg ? '' : 'border-t border-line'}`}>
+                  {anexo.kind === 'image'
+                    ? <img src={anexo.url} alt="" className="h-16 w-16 object-cover rounded-lg border border-line" />
+                    : <video src={anexo.url} className="h-16 w-24 object-cover rounded-lg border border-line" muted />}
+                  <div className="min-w-0">
+                    <div className="text-cream truncate">{anexo.kind === 'image' ? '🖼' : '🎬'} {anexo.file.name}</div>
+                    <div className="text-dim">{(anexo.file.size / 1048576).toFixed(1).replace('.', ',')} MB · o texto abaixo vai como legenda · Enviar manda o arquivo</div>
+                  </div>
+                  <button type="button" onClick={descartarAnexo} className="ml-auto text-danger/80 border border-danger/30 rounded-lg px-2.5 py-1.5 hover:bg-danger/10 transition">✕ remover</button>
+                </div>
+              )}
+              <form onSubmit={enviar} className={`p-4 flex gap-2 ${agendarMsg || anexo ? 'pt-2' : 'border-t border-line'}`}>
                 <input value={texto} onChange={e => setTexto(e.target.value)}
-                  placeholder={comHumano(sel.status) ? (agendarMsg ? 'Mensagem que será enviada na hora marcada…' : 'Responder como humano…') : 'Assuma a conversa para responder (IA está atendendo)'}
+                  placeholder={comHumano(sel.status) ? (anexo ? 'Legenda (opcional)…' : agendarMsg ? 'Mensagem que será enviada na hora marcada…' : 'Responder como humano…') : 'Assuma a conversa para responder (IA está atendendo)'}
                   disabled={!comHumano(sel.status)}
                   className="flex-1 bg-panel border border-line rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-gold/60 disabled:opacity-40 placeholder:text-dim/50" />
+                <input ref={anexoRef} type="file" accept="image/jpeg,image/png,image/webp,video/mp4" className="hidden"
+                  onChange={e => escolherAnexo(e.target.files?.[0] ?? null)} />
+                <button type="button" onClick={() => anexoRef.current?.click()} disabled={!comHumano(sel.status) || agendarMsg}
+                  title="Anexar imagem (JPG/PNG/WebP até 5 MB) ou vídeo MP4 (até 16 MB)"
+                  className={`border rounded-xl px-3.5 text-lg disabled:opacity-30 transition ${anexo ? 'border-gold/60 text-gold bg-gold/10' : 'border-line text-dim hover:text-gold hover:border-gold/40'}`}>📎</button>
                 <button type="button" onClick={gravar} disabled={!comHumano(sel.status)}
                   title="Gravar áudio para o lead (vira nota de voz no WhatsApp)"
                   className="border border-line text-dim rounded-xl px-3.5 text-lg disabled:opacity-30 hover:text-gold hover:border-gold/40 transition">🎤</button>
                 <button type="button" onClick={() => setAgendarMsg(v => !v)} disabled={!comHumano(sel.status)}
                   title="Agendar o envio desta mensagem para mais tarde (dentro da janela; cancela se o lead responder antes)"
                   className={`border rounded-xl px-3.5 text-lg disabled:opacity-30 transition ${agendarMsg ? 'border-teal/60 text-teal bg-teal/10' : 'border-line text-dim hover:text-teal hover:border-teal/40'}`}>⏰</button>
-                <button disabled={!comHumano(sel.status) || !texto.trim() || enviando}
+                <button disabled={!comHumano(sel.status) || (!texto.trim() && !anexo) || enviando}
                   className="bg-gold text-ink font-semibold rounded-xl px-5 text-sm disabled:opacity-30 hover:brightness-110 transition">
-                  Enviar
+                  {enviando ? 'Enviando…' : anexo ? (anexo.kind === 'image' ? '🖼 Enviar imagem' : '🎬 Enviar vídeo') : 'Enviar'}
                 </button>
               </form>
               </>
