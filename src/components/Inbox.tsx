@@ -875,8 +875,19 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
       {/* Lista de conversas — no mobile some quando uma conversa está aberta */}
       <div className={`${sel ? 'hidden lg:flex' : 'flex'} w-full lg:w-80 shrink-0 border-r border-line flex-col`}>
         <div className="p-3 border-b border-line space-y-2">
-          <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar nome ou telefone…"
-            className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gold/60 placeholder:text-dim/50" />
+          <div className="flex gap-2">
+            <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar nome ou telefone…"
+              className="flex-1 min-w-0 bg-panel border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gold/60 placeholder:text-dim/50" />
+            <button onClick={alternarSom} title={som ? 'Som ligado: toca quando um lead seu responde' : 'Som desligado'}
+              className={`shrink-0 w-9 rounded-lg border text-sm transition ${som ? 'border-line text-cream' : 'border-line text-dim/50'}`}>
+              {som ? '🔊' : '🔇'}
+            </button>
+            <button onClick={alternarNotif}
+              title={notif ? 'Notificação do navegador ligada' : 'Ativar notificação do navegador quando um lead seu responder'}
+              className={`shrink-0 w-9 rounded-lg border text-sm transition ${notif ? 'border-gold/60 bg-gold/10 text-cream' : 'border-line text-dim/50'}`}>
+              📣
+            </button>
+          </div>
           <div className="flex gap-2">
             <select value={filtroAgente} onChange={e => setFiltroAgente(e.target.value)}
               className="flex-1 bg-panel border border-line rounded-lg px-2 py-1.5 text-xs text-dim focus:outline-none">
@@ -906,26 +917,24 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
               <option value="sem">Sem responsável</option>
             </select>
           </div>
-          <div className="flex gap-1.5 items-center">
-            <span className="text-[10px] font-mono text-dim uppercase tracking-widest mr-1">Janela 24h</span>
-            {([['', 'Todas'], ['aberta', '🟢 Aberta'], ['fechada', '🔴 Fechada']] as const).map(([v, lbl]) => (
-              <button key={v} onClick={() => setFiltroJanela(v)}
-                className={`text-[11px] px-2.5 py-1 rounded-lg border transition
-                  ${filtroJanela === v ? 'border-gold/60 bg-gold/10 text-cream' : 'border-line text-dim hover:text-cream'}`}>
-                {lbl}
-              </button>
-            ))}
-            <button onClick={alternarSom} title={som ? 'Som ligado: toca quando um lead seu responde' : 'Som desligado'}
-              className={`ml-auto text-[11px] px-2 py-1 rounded-lg border transition ${som ? 'border-line text-cream' : 'border-line text-dim/50'}`}>
-              {som ? '🔊' : '🔇'}
-            </button>
-            <button onClick={alternarNotif}
-              title={notif ? 'Notificação do navegador ligada' : 'Ativar notificação do navegador quando um lead seu responder'}
-              className={`text-[11px] px-2 py-1 rounded-lg border transition ${notif ? 'border-gold/60 bg-gold/10 text-cream' : 'border-line text-dim/50'}`}>
-              📣
-            </button>
+          <div className="flex gap-2 items-stretch">
+            {/* Janela de 24h da Meta: controle segmentado, altura única, nunca quebra linha */}
+            <div className="flex-1 min-w-0 flex items-stretch bg-panel border border-line rounded-lg overflow-hidden"
+              title="Janela de 24h da Meta: aberta enquanto a última mensagem do lead tem menos de 24h">
+              <span className="shrink-0 flex items-center px-1.5 text-[10px] font-mono text-dim uppercase tracking-wider border-r border-line select-none">
+                Janela
+              </span>
+              {([['', 'Todas', ''], ['aberta', 'Aberta', 'bg-win'], ['fechada', 'Fechada', 'bg-danger']] as const).map(([v, lbl, dot]) => (
+                <button key={v} onClick={() => setFiltroJanela(v)}
+                  className={`flex-1 min-w-0 flex items-center justify-center gap-1 px-1 py-1.5 text-[11px] whitespace-nowrap transition
+                    ${filtroJanela === v ? 'bg-gold/10 text-cream' : 'text-dim hover:text-cream'}`}>
+                  {dot && <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${dot}`} />}
+                  <span className="truncate">{lbl}</span>
+                </button>
+              ))}
+            </div>
             <button onClick={() => setSoNaoLidas(v => !v)}
-              className={`text-[11px] px-2.5 py-1 rounded-lg border transition
+              className={`shrink-0 px-2.5 text-[11px] whitespace-nowrap rounded-lg border transition
                 ${soNaoLidas ? 'border-teal/60 bg-teal/10 text-teal' : 'border-line text-dim hover:text-cream'}`}
               title="Só conversas com resposta do lead que ninguém abriu ainda">
               🔔{totalNaoLidas > 0 ? ` ${totalNaoLidas}` : ''}
