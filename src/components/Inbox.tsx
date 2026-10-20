@@ -890,12 +890,12 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
           </div>
           <div className="flex gap-2">
             <select value={filtroAgente} onChange={e => setFiltroAgente(e.target.value)}
-              className="flex-1 bg-panel border border-line rounded-lg px-2 py-1.5 text-xs text-dim focus:outline-none">
+              className="flex-1 min-w-0 bg-panel border border-line rounded-lg px-2 py-1.5 text-xs text-dim focus:outline-none">
               <option value="">Todas mentorias</option>
               {Object.entries(AGENT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
             <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}
-              className="flex-1 bg-panel border border-line rounded-lg px-2 py-1.5 text-xs text-dim focus:outline-none">
+              className="flex-1 min-w-0 bg-panel border border-line rounded-lg px-2 py-1.5 text-xs text-dim focus:outline-none">
               <option value="">Todos status</option>
               {Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
