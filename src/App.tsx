@@ -94,6 +94,29 @@ export default function App() {
     return () => { clearInterval(t); document.title = 'Anne.IA' }
   }, [session])
 
+  // NOVA VERSÃO (20/10): aba aberta há dias segue com o bundle antigo até alguém dar F5 — nos dois
+  // incidentes de outubro a correção só valeu depois de pedir à equipe para recarregar. Agora o painel
+  // compara o hash do bundle servido (index.html, sem cache) com o que está rodando, a cada 3 min e ao
+  // voltar para a aba, e mostra uma faixa "Atualizar".
+  const [novaVersao, setNovaVersao] = useState(false)
+  useEffect(() => {
+    if (!session) return
+    const atual = (document.querySelector('script[src*="assets/index-"]') as HTMLScriptElement | null)?.src.match(/index-([A-Za-z0-9_-]+)\.js/)?.[1]
+    if (!atual) return
+    const conferir = async () => {
+      try {
+        const r = await fetch(`./index.html?v=${Date.now()}`, { cache: 'no-store' })
+        if (!r.ok) return
+        const servido = (await r.text()).match(/index-([A-Za-z0-9_-]+)\.js/)?.[1]
+        if (servido && servido !== atual) setNovaVersao(true)
+      } catch { /* offline: tenta na próxima */ }
+    }
+    const t = setInterval(conferir, 180_000)
+    const h = () => { if (document.visibilityState === 'visible') conferir() }
+    document.addEventListener('visibilitychange', h)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', h) }
+  }, [session])
+
   if (loading) return <div className="h-full grid place-items-center text-dim font-mono text-sm">carregando…</div>
   if (!session) return <Login />
   if (!papel) return <div className="h-full grid place-items-center text-dim font-mono text-sm">verificando acesso…</div>
@@ -120,6 +143,12 @@ export default function App() {
 
   return (
     <div className="h-full flex flex-col md:flex-row">
+      {novaVersao && (
+        <div className="fixed top-0 inset-x-0 z-[60] bg-gold text-ink text-sm font-medium px-4 py-2 flex items-center justify-center gap-3 shadow-lg">
+          <span>🆕 Saiu uma versão nova do painel. Atualize para receber as correções.</span>
+          <button onClick={() => location.reload()} className="bg-ink text-gold font-semibold rounded-lg px-3 py-1 hover:brightness-125 transition">Atualizar agora</button>
+        </div>
+      )}
       {/* Barra superior (mobile) */}
       <header className="md:hidden shrink-0 border-b border-line bg-panel/60 backdrop-blur">
         <div className="flex items-center px-4 pt-3">
