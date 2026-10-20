@@ -241,50 +241,27 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
     return v?.nome ?? email.split('@')[0]
   }
 
+  // LISTA (20/10): UMA chamada — fn_inbox_lista (migration 46) devolve pronto o que antes eram 4 consultas
+  // (200 recentes + TODAS com humano, sem o LIMIT 200 que escondia conversas antigas do vendedor + matriculados
+  // + filtro de agente + filtro de responsável; busca por nome/telefone no banco). Resposta atrasada de uma carga
+  // anterior é IGNORADA (seq) — era isso que deixava "Nenhuma conversa" ao abrir: três cargas quase juntas e a
+  // mais lenta, sem o filtro "Minhas conversas", vencia a certa.
+  const [carregando, setCarregando] = useState(true)
+  const [erroLista, setErroLista] = useState('')
+  const seqRef = useRef(0)
   const carregarConvs = async () => {
-    const SEL = 'id,status,current_agent_slug,last_message_at,last_user_message_at,read_at,responsavel_email,contexto,contacts(id,name,phone,tags,client_memory,opted_out)'
-    const q = buscaRef.current.trim()
-    if (q) {
-      // busca no BANCO (nome/telefone), não só nas 200 carregadas
-      const digits = q.replace(/\D/g, '')
-      const { data: cts } = await supabase.from('contacts').select('id')
-        .or(digits.length >= 4 ? `name.ilike.%${q}%,phone.like.%${digits}%` : `name.ilike.%${q}%`)
-        .limit(100)
-      const ids = ((cts as any) ?? []).map((c: any) => c.id)
-      if (!ids.length) { setConvs([]); return }
-      const { data } = await supabase.from('conversations').select(SEL)
-        .in('contact_id', ids)
-        .order('last_message_at', { ascending: false, nullsFirst: false }).limit(100)
-      setConvs((data as any) ?? [])
-      return
-    }
-    // sem busca: 200 recentes + TODAS as human/comercial/won (não podem sumir num dia de disparo)
-    // + com filtro de agente ativo: TODAS as conversas daquele agente direto do banco
-    // (senão as boas-vindas antigas do onboarding saem das 200 recentes e "somem")
-    const doAgente = filtroAgenteRef.current
-      ? supabase.from('conversations').select(SEL).eq('current_agent_slug', filtroAgenteRef.current)
-          .order('last_message_at', { ascending: false, nullsFirst: false }).limit(500)
-      : Promise.resolve({ data: [] as any })
-    // + com filtro de vendedor ativo: TODAS as conversas daquele responsável direto do banco
+    const seq = ++seqRef.current
     const fr = filtroRespRef.current
-    const doResp = fr && fr !== 'sem'
-      ? supabase.from('conversations').select(SEL).ilike('responsavel_email', fr)
-          .order('last_message_at', { ascending: false, nullsFirst: false }).limit(500)
-      : Promise.resolve({ data: [] as any })
-    const [rec, fixas, agn, rsp] = await Promise.all([
-      supabase.from('conversations').select(SEL)
-        .order('last_message_at', { ascending: false, nullsFirst: false }).limit(200),
-      supabase.from('conversations').select(SEL).in('status', ['human', 'humano_comercial', 'won'])
-        .order('last_message_at', { ascending: false, nullsFirst: false }).limit(200),
-      doAgente,
-      doResp,
-    ])
-    const vistos = new Set<string>()
-    const juntos = [...((rec.data as any) ?? []), ...((fixas.data as any) ?? []), ...(((agn as any).data as any) ?? []),
-      ...(((rsp as any).data as any) ?? [])]
-      .filter((c: any) => { if (vistos.has(c.id)) return false; vistos.add(c.id); return true })
-      .sort((a: any, b: any) => String(b.last_message_at ?? '').localeCompare(String(a.last_message_at ?? '')))
-    setConvs(juntos as any)
+    const { data, error } = await supabase.rpc('fn_inbox_lista', {
+      p_resp: fr && fr !== 'sem' ? fr : null,
+      p_agente: filtroAgenteRef.current || null,
+      p_busca: buscaRef.current.trim() || null,
+    })
+    if (seq !== seqRef.current) return
+    if (error) { setErroLista(error.message); setCarregando(false); return }
+    setErroLista('')
+    setConvs(((data as any) ?? []) as Conv[])
+    setCarregando(false)
   }
 
   // vindo das Escalações: abre direto a conversa do lead
@@ -791,8 +768,11 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
     setEnviandoTpl(false)
   }
 
-  // busca é feita no banco (carregarConvs); aqui só os filtros locais
+  // busca é feita no banco (carregarConvs); aqui só os filtros locais.
+  // Não roda na montagem (a 1ª carga é do effect principal) — evita a 3ª carga simultânea ao abrir.
+  const buscaPrimeira = useRef(true)
   useEffect(() => {
+    if (buscaPrimeira.current) { buscaPrimeira.current = false; return }
     const t = setTimeout(carregarConvs, 350)
     return () => clearTimeout(t)
   }, [busca])
@@ -960,7 +940,17 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
             <div className="px-4 py-1.5 text-[10px] font-mono uppercase tracking-widest text-dim border-b border-line/50 bg-panel">Demais conversas</div>
           )}
           {resto.map(c => linha(c, false))}
-          {lista.length === 0 && <div className="p-6 text-center text-dim text-sm">Nenhuma conversa.</div>}
+          {erroLista && (
+            <div className="m-3 text-xs rounded-lg border border-danger/40 bg-danger/10 text-danger px-3 py-2 flex items-center gap-2">
+              <span className="flex-1">⚠️ Não consegui carregar as conversas: {erroLista}</span>
+              <button onClick={() => { setCarregando(true); carregarConvs() }} className="border border-danger/40 rounded-lg px-2 py-1 hover:bg-danger/20 transition">Tentar de novo</button>
+            </div>
+          )}
+          {carregando && convs.length === 0 ? (
+            <div className="p-6 text-center text-dim text-sm"><span className="animate-pulse">⏳ Carregando conversas…</span></div>
+          ) : !erroLista && lista.length === 0 && (
+            <div className="p-6 text-center text-dim text-sm">Nenhuma conversa.</div>
+          )}
         </div>
       </div>
 
