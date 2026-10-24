@@ -16,6 +16,7 @@ import { MOTIVOS, ATIV_LABEL, ESTRATO_CLS, diasRestantes } from '../lib/comercia
 type Vend = { id: string; nome: string; email: string; tipo: string; ativo: boolean }
 type Card = {
   id: string; vendedor_id: string; estrato: string; status: string; assigned_at: string; expires_at: string
+  proxima_acao: string | null; proxima_acao_em: string | null; gatilho: string | null
   vendedores: { nome: string; email: string } | null
 }
 type Ativ = { id: string; tipo: string; nota: string | null; agendada_para: string | null; created_at: string }
@@ -37,6 +38,9 @@ export default function ComercialNoInbox({ convId, status, nome, optedOut, isAdm
   const [notaDev, setNotaDev] = useState('')
   const [agendando, setAgendando] = useState(false)
   const [dtAgenda, setDtAgenda] = useState('')
+  const [proxModal, setProxModal] = useState(false)       // Comercial v2 (24/10): próxima ação + data, obrigatória
+  const [proxTxt, setProxTxt] = useState('')
+  const [proxDt, setProxDt] = useState('')
   const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(''), 7000) }
 
   const meuVend = vendedores.find(v => v.email.toLowerCase() === meuEmail.toLowerCase()) ?? null
@@ -44,7 +48,7 @@ export default function ComercialNoInbox({ convId, status, nome, optedOut, isAdm
 
   const carregar = async () => {
     const { data } = await supabase.from('lead_assignments')
-      .select('id,vendedor_id,estrato,status,assigned_at,expires_at,vendedores(nome,email)')
+      .select('id,vendedor_id,estrato,status,assigned_at,expires_at,proxima_acao,proxima_acao_em,gatilho,vendedores(nome,email)')
       .eq('conversation_id', convId).eq('status', 'ativo').maybeSingle()
     const c = (data as any) ?? null
     setCard(c)
@@ -104,6 +108,17 @@ export default function ComercialNoInbox({ convId, status, nome, optedOut, isAdm
     setAgendando(false); setDtAgenda('')
     flash('🗓 Ligação agendada — está na sua régua no topo da aba Comercial.')
   }
+  const salvarProxima = async () => {
+    if (!card || !proxTxt.trim() || !proxDt) return
+    setOcupado(true)
+    const { data, error } = await supabase.rpc('fn_cv2_proxima_acao', { p_assignment_id: card.id, p_acao: proxTxt.trim(), p_em: new Date(proxDt).toISOString() })
+    setOcupado(false)
+    if (error) return flash('⚠️ ' + error.message)
+    if (!data?.ok) return flash('⚠️ ' + (data?.erro ?? 'Não foi possível salvar.'))
+    setProxModal(false); setProxTxt(''); setProxDt('')
+    flash('✅ Próxima ação registrada.')
+    carregar()
+  }
   const devolver = async () => {
     if (!card || !motivo) return
     const { error } = await supabase.from('lead_assignments').update({
@@ -140,6 +155,14 @@ export default function ComercialNoInbox({ convId, status, nome, optedOut, isAdm
           <span className={`font-mono px-1.5 py-0.5 rounded border ${ESTRATO_CLS[card.estrato] ?? ESTRATO_CLS.C}`} title="Estrato do lead (A quente · B morno · C frio)">{card.estrato}</span>
           {nNao > 0 && <span className="font-mono px-1.5 py-0.5 rounded border border-danger/30 text-danger/90 bg-danger/5">📵 ×{nNao}</span>}
           {nAt > 0 && <span className="font-mono px-1.5 py-0.5 rounded border border-win/40 text-win bg-win/5">📞 ×{nAt}</span>}
+          {card.proxima_acao_em ? (
+            <span className={new Date(card.proxima_acao_em).getTime() < Date.now() ? 'text-danger' : 'text-gold'}
+              title="Próxima ação combinada (Comercial v2)">
+              ▶ {card.proxima_acao} · {fmtHora(card.proxima_acao_em)}{new Date(card.proxima_acao_em).getTime() < Date.now() ? ' · VENCIDA' : ''}
+            </span>
+          ) : (
+            <span className="text-danger" title="Todo lead em posse precisa de próxima ação com data (24 h após a atribuição)">▶ sem próxima ação</span>
+          )}
           {proxAgendada ? (
             <span className="text-gold">🗓 Ligação marcada · {fmtHora(proxAgendada.agendada_para)}</span>
           ) : ult ? (
@@ -153,6 +176,8 @@ export default function ComercialNoInbox({ convId, status, nome, optedOut, isAdm
                 className={btn + ' border-line text-dim hover:text-win hover:border-win/40'}>📞 Atendida{nAt > 0 ? ` ×${nAt}` : ''}</button>
               <button onClick={() => registrar('ligacao_nao_atendida')} disabled={ocupado}
                 className={btn + ' border-line text-dim hover:text-danger hover:border-danger/40'}>📵 Não atendeu{nNao > 0 ? ` ×${nNao}` : ''}</button>
+              <button onClick={() => { setProxTxt(card.proxima_acao ?? ''); setProxDt(''); setProxModal(true) }}
+                className={btn + (card.proxima_acao_em && new Date(card.proxima_acao_em).getTime() > Date.now() ? ' border-line text-dim hover:text-gold hover:border-gold/40' : ' border-gold/60 text-gold bg-gold/10')}>▶ Próxima ação</button>
               <button onClick={() => { setDtAgenda(''); setAgendando(true) }}
                 className={btn + ' border-line text-dim hover:text-gold hover:border-gold/40'}>🗓 Agendar ligação</button>
               <button onClick={() => { setMotivo(''); setNotaDev(''); setDevolvendo(true) }}
@@ -190,6 +215,26 @@ export default function ComercialNoInbox({ convId, status, nome, optedOut, isAdm
                 className="flex-1 text-sm font-semibold bg-gold text-ink rounded-lg py-2 disabled:opacity-40 hover:brightness-110 transition">
                 {ocupado ? 'Enviando…' : 'Enviar'}
               </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Modal: próxima ação com data (Comercial v2) */}
+      {proxModal && (
+        <>
+          <div className="fixed inset-0 z-40 bg-ink/60" onClick={() => setProxModal(false)} />
+          <div className="fixed z-50 inset-x-4 top-24 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-[24rem] bg-panel border border-line rounded-2xl shadow-2xl p-5 space-y-3">
+            <h2 className="font-display font-semibold">▶ Próxima ação</h2>
+            <p className="text-[11px] text-dim">{nome} — o que você vai fazer e quando. Sem próxima ação registrada o lead aparece como "esquecido" para o Fábio.</p>
+            <input className={inp + ' w-full'} placeholder="Ex.: ligar e mandar proposta no cartão" value={proxTxt} onChange={e => setProxTxt(e.target.value)} />
+            <input type="datetime-local" className={inp + ' w-full'} value={proxDt}
+              min={new Date(Date.now() + 5 * 60000).toISOString().slice(0, 16)}
+              onChange={e => setProxDt(e.target.value)} />
+            <div className="flex gap-2">
+              <button onClick={() => setProxModal(false)} className="flex-1 text-sm border border-line text-dim rounded-lg py-2 hover:text-cream transition">Cancelar</button>
+              <button onClick={salvarProxima} disabled={!proxTxt.trim() || !proxDt || ocupado}
+                className="flex-1 text-sm font-semibold bg-gold text-ink rounded-lg py-2 disabled:opacity-40 hover:brightness-110 transition">Salvar</button>
             </div>
           </div>
         </>

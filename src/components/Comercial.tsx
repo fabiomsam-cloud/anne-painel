@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import FilaAtribuir from './FilaAtribuir'
 import { supabase, AGENT_LABEL, fmtFone, fmtHora } from '../lib/supabase'
 import ComercialMetricas from './ComercialMetricas'
 import AgendarModal, { useReguaAberta } from './AgendarModal'
@@ -19,6 +20,7 @@ type Assignment = {
   id: string; corte_id: string | null; vendedor_id: string; contact_id: string; conversation_id: string | null
   estrato: string; status: string; motivo_perda: string | null; venda_valor: number | null
   assigned_at: string; expires_at: string; closed_at: string | null
+  proxima_acao?: string | null; proxima_acao_em?: string | null; gatilho?: string | null   // Comercial v2 (24/10)
   contacts: { name: string | null; phone: string; source_first: any } | null
   // last_*: quem falou por último na conversa — o lead que respondeu e espera retorno sobe na coluna (15/10)
   conversations: { current_agent_slug: string; last_user_message_at: string | null; last_message_at: string | null } | null
@@ -330,6 +332,7 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
 
       {subTab === 'pipeline' ? (
         <div className="flex-1 min-h-0 flex flex-col">
+          <FilaAtribuir vendSel={vendSel} isAdmin={isAdmin} meuTipo={meuTipo} onAssumiu={carregarCards} irParaInbox={irParaInbox} />
           <div className="px-4 md:px-6 py-3 flex items-center gap-3 flex-wrap">
             {isAdmin ? (
               <select value={vendSel} onChange={e => setVendSel(e.target.value)} className={inp + ' min-w-52'}>
@@ -416,6 +419,15 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
                                   title="Dias restantes de posse (14 no total)">⏳{dias}d</span>
                               )}
                             </div>
+                            {a.status === 'ativo' && (
+                              a.proxima_acao_em ? (
+                                <div className={`text-[11px] ${new Date(a.proxima_acao_em).getTime() < Date.now() ? 'text-danger' : 'text-gold'}`} title="Próxima ação combinada (Comercial v2) — registre no Inbox, barra ☎️">
+                                  ▶ {a.proxima_acao} · {fmtHora(a.proxima_acao_em)}{new Date(a.proxima_acao_em).getTime() < Date.now() ? ' · VENCIDA' : ''}
+                                </div>
+                              ) : (
+                                <div className="text-[11px] text-danger" title="Todo lead em posse precisa de próxima ação com data — registre no Inbox, barra ☎️">▶ sem próxima ação</div>
+                              )
+                            )}
                             {esp > 0 && (
                               <div className="text-[11px] text-gold font-medium" title="A última mensagem da conversa é do lead — ele está esperando retorno">
                                 💬 Respondeu · {fmtHora(a.conversations!.last_user_message_at)} · aguardando você
