@@ -14,6 +14,7 @@ import Comercial from './components/Comercial'
 import Sentinela, { buscarSaude, type Saude } from './components/Sentinela'
 import Historico from './components/Historico'
 import Agendamento from './components/Agendamento'
+import Treinamento from './components/Treinamento'
 
 const TABS = [
   { id: 'inbox', label: 'Inbox', icon: '💬' },
@@ -26,12 +27,13 @@ const TABS = [
   { id: 'metricas', label: 'Métricas', icon: '📈' },
   { id: 'historico', label: 'Histórico', icon: '📅' },
   { id: 'sentinela', label: 'Sentinela', icon: '🛡️' },
+  { id: 'treinamento', label: 'Treinamento', icon: '📚' },   // biblioteca de guias da equipe (26/10)
   { id: 'equipe', label: 'Equipe', icon: '👥' },
   { id: 'config', label: 'Configuração', icon: '⚙️' },
 ] as const
 
 // vendedor (closer ou escalação) só enxerga a operação; o resto é de administrador
-const TABS_VENDEDOR = ['inbox', 'escalacoes', 'comercial', 'sentinela']
+const TABS_VENDEDOR = ['inbox', 'escalacoes', 'comercial', 'sentinela', 'treinamento']
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
@@ -227,6 +229,7 @@ export default function App() {
         {tab === 'metricas' && <Metricas />}
         {tab === 'historico' && <Historico />}
         {tab === 'sentinela' && <Sentinela />}
+        {tab === 'treinamento' && <Treinamento isAdmin={papel.role === 'admin'} />}
         {tab === 'config' && <Config />}
         </div>
       </main>
