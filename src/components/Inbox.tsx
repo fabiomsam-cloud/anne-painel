@@ -4,6 +4,7 @@ import { supabase, AGENT_LABEL, STATUS_META, PIPELINE_COLS, pipelineCol, fmtHora
 import AgendarModal, { useReguaAberta } from './AgendarModal'
 import ComercialNoInbox from './ComercialNoInbox'
 import { ddmm, podeAgendar } from '../lib/agendamento'
+import { estadoInbox, FAIXA, TXT, CHIP, RANK } from '../lib/semaforo'
 
 type Conv = {
   id: string; status: string; current_agent_slug: string; last_message_at: string | null
@@ -792,10 +793,20 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
     return String(b.last_message_at ?? '').localeCompare(String(a.last_message_at ?? ''))
   })
   const totalNaoLidas = convs.filter(unreadDe).length
-  // bloco fixo: quem espera há mais tempo primeiro; o resto segue a ordem de sempre
+  // semáforo da linha (lib/semaforo.ts): verde até 1 h · âmbar até 24 h · vermelho acima · cinza acima de 14 dias
+  const ehMeu = (c: Conv) => !!meuEmail && (c.responsavel_email ?? '').toLowerCase() === meuEmail
+  const semaforoDe = (c: Conv) => estadoInbox({
+    aguardando: aguardando(c), lastUser: c.last_user_message_at, lastMsg: c.last_message_at,
+    comHumano: comHumano(c.status), semDono: comHumano(c.status) && !c.responsavel_email, meu: ehMeu(c), agora,
+  })
+  // bloco fixo: por urgência (vermelho → âmbar → verde → cinza); entre iguais, quem espera há mais tempo primeiro
   const fila = lista.filter(aguardando)
-    .sort((a, b) => String(a.last_user_message_at ?? '').localeCompare(String(b.last_user_message_at ?? '')))
+    .sort((a, b) => (RANK[semaforoDe(a).cor] - RANK[semaforoDe(b).cor]) ||
+      String(a.last_user_message_at ?? '').localeCompare(String(b.last_user_message_at ?? '')))
   const resto = lista.filter(c => !aguardando(c))
+  const nFila: Record<string, number> = {}
+  for (const c of fila) { const k = semaforoDe(c).cor; nFila[k] = (nFila[k] ?? 0) + 1 }
+  const nSemDono = lista.filter(c => comHumano(c.status) && !c.responsavel_email).length
 
   const mem = sel?.contacts?.client_memory ?? {}
   const jan = janela(sel, agora)
@@ -806,19 +817,21 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
             const etapa = ETAPA_CHIP[pipelineCol(c)]
             const unread = unreadDe(c)
             // conversa com humano: a última mensagem é de saída = você já respondeu
-            const vcRespondeu = comHumano(c.status) && ultimaEhSaida(c)
+            const si = semaforoDe(c)
+            const meu = ehMeu(c)
             return (
             <button key={c.id} onClick={() => { setSel(c); marcarLida(c) }}
-              className={`w-full text-left px-4 py-3 border-b border-line/50 hover:bg-panel2/50 transition-colors
-                ${destaque[c.id] ? 'inbox-flash' : ''}
-                ${sel?.id === c.id ? 'bg-panel2' : unread ? 'bg-teal/5' : ''}`}>
+              className={`relative w-full text-left pl-5 pr-4 py-3 border-b border-line/50 hover:bg-panel2/50 transition-colors
+                ${destaque[c.id] ? 'inbox-flash' : ''} ${si.cor === 'grey' ? 'opacity-70' : ''}
+                ${sel?.id === c.id ? 'bg-panel2' : unread ? 'bg-teal/5' : meu ? 'bg-gold/5' : ''}`}>
+              {si.cor !== 'none' && <span className={`absolute left-0 top-0 bottom-0 w-1.5 ${FAIXA[si.cor]} ${si.pulsa ? 'animate-pulse' : ''}`} />}
               <div className="flex items-center justify-between gap-2">
                 <span className={`text-sm truncate ${unread ? 'font-semibold text-cream' : 'font-medium'}`}>
                   {unread && <span className="text-teal mr-1.5">●</span>}
                   {c.contacts?.name || fmtFone(c.contacts?.phone)}
                 </span>
                 {naFila
-                  ? <span className="font-mono text-[10px] text-gold shrink-0" title={`Lead escreveu ${fmtHora(c.last_user_message_at)}`}>⏳ {fmtEspera(c.last_user_message_at, agora)}</span>
+                  ? <span className={`font-mono text-[10px] shrink-0 ${TXT[si.cor]} ${si.cor === 'red' ? 'font-bold' : ''}`} title={`Lead escreveu ${fmtHora(c.last_user_message_at)}`}>{si.espera || fmtEspera(c.last_user_message_at, agora)}</span>
                   : <span className="font-mono text-[10px] text-dim shrink-0">{fmtHora(c.last_message_at)}</span>}
               </div>
               <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
@@ -831,20 +844,22 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                 {etapa && (
                   <span className={`text-[10px] px-1.5 py-0.5 rounded border ${etapa.cls}`}>{etapa.label}</span>
                 )}
-                {c.responsavel_email && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded border border-line text-dim" title={c.responsavel_email}>
-                    👤 {nomeResp(c.responsavel_email)}
+                {c.responsavel_email ? (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded border ${meu ? 'border-gold/50 text-gold bg-gold/10 font-semibold' : 'border-line text-dim'}`} title={c.responsavel_email}>
+                    👤 {meu ? 'você' : nomeResp(c.responsavel_email)}
                   </span>
-                )}
-                {unread ? (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded border border-teal/50 text-teal bg-teal/10">💬 lead respondeu</span>
-                ) : comHumano(c.status) && c.last_user_message_at ? (
-                  vcRespondeu
-                    ? <span className="text-[10px] px-1.5 py-0.5 rounded border border-win/40 text-win bg-win/5">✓ você respondeu</span>
-                    : <span className="text-[10px] px-1.5 py-0.5 rounded border border-gold/50 text-gold bg-gold/10">✋ falta responder</span>
+                ) : comHumano(c.status) ? (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded border border-amber/50 text-amber bg-amber/10 font-semibold" title="Conversa com humano sem responsável — assuma pelo seletor 👤 ao abrir">sem dono</span>
                 ) : null}
-                <span title={janela(c, agora).aberta ? `Janela aberta · resta ${janela(c, agora).label}` : 'Janela de 24h fechada'}
-                  className="text-[10px] ml-auto">{janela(c, agora).aberta ? '🟢' : '🔴'}</span>
+                {si.cor !== 'none' ? (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded border flex items-center gap-1 font-medium ${CHIP[si.cor]}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${FAIXA[si.cor]} ${si.pulsa ? 'animate-pulse' : ''}`} />{si.rotulo}
+                  </span>
+                ) : unread ? (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded border border-teal/50 text-teal bg-teal/10">💬 lead respondeu</span>
+                ) : null}
+                <span title={janela(c, agora).aberta ? `Janela de 24h da Meta aberta · resta ${janela(c, agora).label}` : 'Janela de 24h da Meta fechada — só template'}
+                  className="text-[10px] ml-auto">{janela(c, agora).aberta ? '🔓' : '🔒'}</span>
               </div>
             </button>
             )
@@ -928,8 +943,12 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                 className="w-full flex items-center justify-between px-4 py-2 text-[11px] font-mono uppercase tracking-widest text-gold hover:bg-panel2/50"
                 title="Conversas em que a última mensagem é do lead e ninguém respondeu. Responder tira daqui; só abrir, não.">
                 <span>✋ {isAdmin && !filtroResp ? 'Aguardando resposta' : 'Aguardando minha resposta'}</span>
-                <span className="flex items-center gap-2">
-                  <span className="px-1.5 py-0.5 rounded-full bg-gold text-ink text-[10px] font-semibold">{fila.length}</span>
+                <span className="flex items-center gap-1.5 normal-case tracking-normal">
+                  {nFila.red ? <span className={`px-1.5 py-0.5 rounded-full border text-[10px] font-semibold ${CHIP.red}`} title="esperando há mais de 24 h">{nFila.red} +24 h</span> : null}
+                  {nFila.amber ? <span className={`px-1.5 py-0.5 rounded-full border text-[10px] font-semibold ${CHIP.amber}`} title="esperando de 1 h a 24 h">{nFila.amber}</span> : null}
+                  {nFila.green ? <span className={`px-1.5 py-0.5 rounded-full border text-[10px] font-semibold ${CHIP.green}`} title="esperando há menos de 1 h">{nFila.green}</span> : null}
+                  {nFila.grey ? <span className={`px-1.5 py-0.5 rounded-full border text-[10px] font-semibold ${CHIP.grey}`} title="frios: mais de 14 dias — decidir devolver ou retomar">{nFila.grey} frios</span> : null}
+                  {nSemDono ? <span className={`px-1.5 py-0.5 rounded-full border text-[10px] font-semibold ${CHIP.amber}`} title="conversas com humano sem responsável">{nSemDono} sem dono</span> : null}
                   <span className="text-dim">{filaAberta ? '▾' : '▸'}</span>
                 </span>
               </button>

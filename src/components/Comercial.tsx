@@ -5,6 +5,7 @@ import ComercialMetricas from './ComercialMetricas'
 import AgendarModal, { useReguaAberta } from './AgendarModal'
 import { podeAgendar } from '../lib/agendamento'
 import { MOTIVOS, ATIV_LABEL, ESTRATO_CLS, diasRestantes } from '../lib/comercial'
+import { estadoCard, FAIXA, TXT, CHIP, RANK, TITULO, type Cor } from '../lib/semaforo'
 
 // ============================================================
 // Comercial Humano — vendedores por telefone assumem leads que a
@@ -70,6 +71,10 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
   const [vendedores, setVendedores] = useState<Vendedor[]>([])
   const [meuEmail, setMeuEmail] = useState('')
   const [vendSel, setVendSel] = useState('')
+  // semáforo (25/10): relógio de 1 min para as cores por tempo + flag do motor v2 (muda o texto do aviso de posse)
+  const [agora, setAgora] = useState(Date.now())
+  const [cv2Ativo, setCv2Ativo] = useState(false)
+  useEffect(() => { const t = setInterval(() => setAgora(Date.now()), 60000); return () => clearInterval(t) }, [])
   const [cards, setCards] = useState<Assignment[]>([])
   const [ativs, setAtivs] = useState<Record<string, Atividade[]>>({})
   const [vendas, setVendas] = useState<Record<string, VendaCard>>({})
@@ -105,6 +110,7 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
     const { data: u } = await supabase.auth.getUser()
     const email = u.user?.email ?? ''
     setMeuEmail(email)
+    supabase.rpc('fn_cv2_cfg').then(({ data }) => setCv2Ativo(!!(data as any)?.ativo))
     // vendedor fica TRAVADO no próprio pipeline; admin navega por todos
     if (!isAdmin && meuVendedorId) setVendSel(meuVendedorId)
     else {
@@ -266,6 +272,11 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
     const l = cv.last_message_at ? new Date(cv.last_message_at).getTime() : 0
     return u >= l ? u : 0
   }
+  // semáforo do card (lib/semaforo.ts): vermelho lead esperando · âmbar sem próxima ação/vencida · verde marcada · cinza frio
+  const semaforoDe = (a: Assignment) => estadoCard({
+    esperandoDesde: esperando(a), proximaEm: a.proxima_acao_em, naoAtendeu: contar(a, 'ligacao_nao_atendida'),
+    ultimoContatoLead: a.conversations?.last_user_message_at, assignedAt: a.assigned_at, agora,
+  })
   // 🔍 busca por nome ou telefone (só nos cards já carregados — o pipeline é do vendedor, cabe inteiro)
   const bateBusca = (a: Assignment): boolean => {
     const q = buscaPipe.trim().toLowerCase()
@@ -278,15 +289,15 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
     const m: Record<string, Assignment[]> = {}
     for (const c of COLS) m[c.id] = []
     for (const a of cards) if (bateBusca(a)) m[colunaDoCard(a)]?.push(a)
-    // dentro de cada coluna: quem respondeu e espera retorno primeiro (resposta mais recente no topo);
-    // o resto mantém a ordem do banco (mais recente recebido primeiro)
+    // dentro de cada coluna: semáforo primeiro (vermelho → âmbar → verde → cinza); entre iguais, quem espera há mais
+    // tempo primeiro; o resto mantém a ordem do banco (mais recente recebido primeiro)
     for (const id of Object.keys(m)) {
-      m[id] = m[id].map((a, i) => ({ a, i, e: esperando(a) }))
-        .sort((x, y) => (y.e - x.e) || (x.i - y.i))
+      m[id] = m[id].map((a, i) => ({ a, i, e: esperando(a), r: a.status === 'ativo' ? RANK[semaforoDe(a).cor] : 9 }))
+        .sort((x, y) => (x.r - y.r) || (x.e && y.e ? x.e - y.e : y.e - x.e) || (x.i - y.i))
         .map(x => x.a)
     }
     return m
-  }, [cards, ativs, buscaPipe])
+  }, [cards, ativs, buscaPipe, agora])
   const nEsperando = useMemo(() => cards.filter(a => a.status === 'ativo' && esperando(a) > 0).length, [cards])
 
   // régua do vendedor: TODAS as ligações agendadas pendentes (atrasada = vermelha)
@@ -350,7 +361,7 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
               className={inp + ' w-48'} />
             <span className="text-[11px] text-dim">
               {porColuna.recebido.length + porColuna.cadencia.length + porColuna.agendado.length} em posse ·
-              {nEsperando > 0 && <> <b className="text-gold">💬 {nEsperando} esperando resposta</b> · </>}
+              {nEsperando > 0 && <> <b className="text-danger">💬 {nEsperando} esperando você</b> · </>}
               abra 📇 Dados do lead antes de ligar · registre CADA tentativa
             </span>
             {!isAdmin && (
@@ -399,6 +410,20 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
                       <div className="text-sm font-semibold flex items-center gap-2">
                         {col.label}
                         <span className="text-[10px] font-mono text-dim">{porColuna[col.id].length}</span>
+                        {['recebido', 'cadencia', 'agendado'].includes(col.id) && (() => {
+                          // contadores do semáforo no cabeçalho da coluna
+                          const n: Partial<Record<Cor, number>> = {}
+                          for (const a of porColuna[col.id]) { const c = semaforoDe(a).cor; n[c] = (n[c] ?? 0) + 1 }
+                          return (
+                            <span className="ml-auto flex gap-1">
+                              {(['red', 'amber', 'green', 'grey'] as Cor[]).filter(c => n[c]).map(c => (
+                                <span key={c} title={TITULO[c]} className={`text-[10px] font-mono px-1.5 py-px rounded-full border ${CHIP[c]}`}>
+                                  {n[c]}{c === 'red' ? ' esperando você' : ''}
+                                </span>
+                              ))}
+                            </span>
+                          )
+                        })()}
                       </div>
                       <div className="text-[10px] text-dim mt-0.5">{col.hint}</div>
                     </div>
@@ -409,28 +434,40 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
                         const nAt = contar(a, 'ligacao_atendida'), nNao = contar(a, 'ligacao_nao_atendida')
                         const agendaCard = proxAgendada(a)
                         const esp = esperando(a)
+                        const sem = a.status === 'ativo' ? semaforoDe(a) : null
                         return (
-                          <div key={a.id} className={`bg-panel border rounded-xl p-3 space-y-2 ${esp && a.status === 'ativo' ? 'border-gold/50 shadow-[0_0_0_1px_rgba(212,175,55,0.15)]' : 'border-line'}`}>
+                          <div key={a.id} className={`relative overflow-hidden bg-panel border border-line rounded-xl p-3 pl-4 space-y-2 ${sem?.cor === 'grey' ? 'opacity-75' : ''}`}>
+                            {sem && <span className={`absolute left-0 top-0 bottom-0 w-1.5 ${FAIXA[sem.cor]} ${sem.pulsa ? 'animate-pulse' : ''}`} />}
                             <div className="flex items-center gap-2">
                               <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${ESTRATO_CLS[a.estrato]}`}>{a.estrato}</span>
                               <span className="text-sm font-medium truncate">{a.contacts?.name || fmtFone(a.contacts?.phone)}</span>
                               {a.status === 'ativo' && (
-                                <span className={`ml-auto text-[10px] font-mono ${dias <= 3 ? 'text-danger' : 'text-dim'}`}
+                                <span className={`ml-auto text-[10px] font-mono ${dias <= 3 ? 'text-danger font-semibold' : 'text-dim'}`}
                                   title="Dias restantes de posse (14 no total)">⏳{dias}d</span>
                               )}
                             </div>
+                            {sem && (
+                              <div className={`text-[12px] font-semibold flex items-center gap-1.5 ${TXT[sem.cor]}`} title={TITULO[sem.cor]}>
+                                <span className={`shrink-0 w-2 h-2 rounded-full ${FAIXA[sem.cor]} ${sem.pulsa ? 'animate-pulse' : ''}`} />{sem.rotulo}
+                              </div>
+                            )}
+                            {sem && dias <= 3 && (
+                              <div className="text-[11px] text-danger border border-dashed border-danger/40 bg-danger/5 rounded-lg px-2 py-1">
+                                ⚠ {cv2Ativo ? `volta para a recuperação da Anne em ${dias} d se não houver atividade` : `posse acaba em ${dias} d`}
+                              </div>
+                            )}
                             {a.status === 'ativo' && (
                               a.proxima_acao_em ? (
-                                <div className={`text-[11px] ${new Date(a.proxima_acao_em).getTime() < Date.now() ? 'text-danger' : 'text-gold'}`} title="Próxima ação combinada (Comercial v2) — registre no Inbox, barra ☎️">
-                                  ▶ {a.proxima_acao} · {fmtHora(a.proxima_acao_em)}{new Date(a.proxima_acao_em).getTime() < Date.now() ? ' · VENCIDA' : ''}
+                                <div className={`text-[11px] ${new Date(a.proxima_acao_em).getTime() < agora ? 'text-amber' : 'text-gold'}`} title="Próxima ação combinada (Comercial v2) — registre no Inbox, barra ☎️">
+                                  ▶ {a.proxima_acao} · {fmtHora(a.proxima_acao_em)}{new Date(a.proxima_acao_em).getTime() < agora ? ' · VENCIDA' : ''}
                                 </div>
-                              ) : (
-                                <div className="text-[11px] text-danger" title="Todo lead em posse precisa de próxima ação com data — registre no Inbox, barra ☎️">▶ sem próxima ação</div>
-                              )
+                              ) : sem?.cor !== 'amber' ? (
+                                <div className="text-[11px] text-amber" title="Todo lead em posse precisa de próxima ação com data — registre no Inbox, barra ☎️">▶ sem próxima ação</div>
+                              ) : null
                             )}
                             {esp > 0 && (
-                              <div className="text-[11px] text-gold font-medium" title="A última mensagem da conversa é do lead — ele está esperando retorno">
-                                💬 Respondeu · {fmtHora(a.conversations!.last_user_message_at)} · aguardando você
+                              <div className="text-[10px] text-dim" title="A última mensagem da conversa é do lead — ele está esperando retorno">
+                                💬 última mensagem do lead · {fmtHora(a.conversations!.last_user_message_at)}
                               </div>
                             )}
                             <div className="flex items-center gap-1.5 text-[10px] text-dim font-mono flex-wrap">

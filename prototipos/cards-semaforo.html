@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Protótipo · cards com semáforo</title>
+<style>
+:root{--ink:#0b1512;--panel:#101d19;--panel2:#16261f;--line:#1f332a;--gold:#f5b942;--teal:#35d0ba;--cream:#e8efe9;--dim:#8aa396;
+ --red:#e06f6f;--amber:#ef9a3c;--green:#6fe08c;--grey:#5f7368;--purple:#b89cff;--blue:#6fb3e0}
+*{box-sizing:border-box}body{margin:0;background:var(--ink);color:var(--cream);font:14px/1.4 -apple-system,"Segoe UI",Inter,sans-serif;padding:22px}
+h1{font-size:17px;margin:0 0 4px}.sub{color:var(--dim);font-size:12px;margin-bottom:16px}
+.legenda{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--dim);margin-bottom:18px}
+.legenda b{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.grid{display:grid;grid-template-columns:minmax(360px,440px) minmax(0,1fr);gap:26px;align-items:start}
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
+.col{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px}
+.colh{display:flex;align-items:baseline;gap:10px;margin:2px 4px 12px;flex-wrap:wrap}.colh h2{font-size:15px;margin:0}.colh small{color:var(--dim)}
+.cont{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}.cont span{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid}
+.c-red{color:var(--red);border-color:rgba(224,111,111,.5);background:rgba(224,111,111,.1)}
+.c-amber{color:var(--amber);border-color:rgba(239,154,60,.5);background:rgba(239,154,60,.1)}
+.c-green{color:var(--green);border-color:rgba(111,224,140,.45);background:rgba(111,224,140,.08)}
+.c-grey{color:var(--grey);border-color:rgba(95,115,104,.5);background:rgba(95,115,104,.1)}
+/* card comercial */
+.card{position:relative;background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:14px 14px 12px 20px;margin-bottom:12px;overflow:hidden}
+.card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--cor)}
+.card.red{--cor:var(--red)}.card.amber{--cor:var(--amber)}.card.green{--cor:var(--green)}.card.grey{--cor:var(--grey);opacity:.78}
+.card.red::before{animation:pulse 1.6s ease-in-out infinite}@keyframes pulse{50%{opacity:.45}}
+.top{display:flex;align-items:center;gap:8px}.nome{font-size:17px;font-weight:600;flex:1}
+.jev{font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px;letter-spacing:.3px}
+.jev.A{background:rgba(184,156,255,.18);color:var(--purple);border:1px solid rgba(184,156,255,.5)}
+.jev.B{background:rgba(111,179,224,.14);color:var(--blue);border:1px solid rgba(111,179,224,.45)}
+.jev.C{background:rgba(95,115,104,.14);color:var(--dim);border:1px solid rgba(95,115,104,.45)}
+.posse{font-size:12px;color:var(--dim)}.posse.alerta{color:var(--red);font-weight:600}
+.estado{margin:9px 0 6px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px}
+.estado .dot{width:9px;height:9px;border-radius:50%;background:var(--cor);box-shadow:0 0 0 3px color-mix(in srgb,var(--cor) 22%,transparent)}
+.red .estado{color:var(--red)}.amber .estado{color:var(--amber)}.green .estado{color:var(--green)}.grey .estado{color:var(--dim)}
+.meta{color:var(--dim);font-size:12px;line-height:1.7}.meta code{font-family:ui-monospace,Menlo,monospace;font-size:11px;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.chip{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:7px;padding:3px 8px}
+.btns{display:flex;gap:8px;margin-top:10px}.btn{flex:1;text-align:center;font-size:13px;font-weight:600;padding:8px 10px;border-radius:9px;border:1px solid}
+.btn.g{color:var(--gold);border-color:rgba(245,185,66,.5);background:rgba(245,185,66,.1)}.btn.t{color:var(--teal);border-color:rgba(53,208,186,.5);background:rgba(53,208,186,.08)}
+.aviso{margin-top:8px;font-size:12px;color:var(--red);background:rgba(224,111,111,.08);border:1px dashed rgba(224,111,111,.4);border-radius:8px;padding:5px 9px}
+.aviso.cinza{color:var(--dim);background:rgba(95,115,104,.1);border-color:rgba(95,115,104,.45)}
+/* inbox */
+.lista{display:flex;flex-direction:column}
+.row{position:relative;display:grid;grid-template-columns:1fr auto;gap:4px 10px;padding:12px 12px 12px 20px;border-bottom:1px solid var(--line);overflow:hidden}
+.row::before{content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--cor)}
+.row.red{--cor:var(--red)}.row.amber{--cor:var(--amber)}.row.green{--cor:var(--green)}.row.grey{--cor:var(--grey)}.row.grey .rn,.row.grey .rc{opacity:.6}
+.row.meu{background:rgba(245,185,66,.04)}
+.rn{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
+.rt{font-size:12px;font-family:ui-monospace,Menlo,monospace;text-align:right;align-self:center}
+.red .rt{color:var(--red);font-weight:700}.amber .rt{color:var(--amber);font-weight:600}.green .rt{color:var(--green)}.grey .rt{color:var(--grey)}
+.rc{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.tag{font-size:11px;border:1px solid var(--line);border-radius:7px;padding:2px 8px;color:var(--dim)}
+.tag.eu{color:var(--gold);border-color:rgba(245,185,66,.5);background:rgba(245,185,66,.1);font-weight:600}
+.tag.semdono{color:var(--amber);border-color:rgba(239,154,60,.5);background:rgba(239,154,60,.1);font-weight:600}
+.tag.ico::before{content:attr(data-i);margin-right:5px}
+.st{font-size:12px;font-weight:600;margin-left:auto;display:flex;align-items:center;gap:6px}
+.st .b{width:10px;height:10px;border-radius:50%;background:var(--cor);box-shadow:0 0 0 3px color-mix(in srgb,var(--cor) 22%,transparent)}
+.red .st{color:var(--red)}.amber .st{color:var(--amber)}.green .st{color:var(--green)}.grey .st{color:var(--dim)}
+.red .st .b{animation:pulse 1.6s ease-in-out infinite}
+.nota{margin-top:14px;font-size:12px;color:var(--dim);border-top:1px solid var(--line);padding-top:10px}
+</style></head><body>
+<h1>Protótipo · semáforo nos cards do Comercial e do Inbox</h1>
+<div class="sub">Uma pergunta só define a cor: <b style="color:var(--cream)">de quem é a bola e há quanto tempo</b>. Mentoria, funil e origem ficam em cinza.</div>
+<div class="legenda">
+ <span><b style="background:var(--red)"></b>Vermelho · o lead está esperando você (dinheiro na mesa)</span>
+ <span><b style="background:var(--amber)"></b>Âmbar · bola com você, sem resposta pendente (sem próxima ação / vencida / sem dono)</span>
+ <span><b style="background:var(--green)"></b>Verde · próxima ação marcada ou esperando o lead</span>
+ <span><b style="background:var(--grey)"></b>Cinza · frio: decidir devolver ou retomar</span>
+ <span><b style="background:var(--purple)"></b>Classe A do Jev</span>
+</div>
+
+<div class="grid">
+<div class="col">
+ <div class="colh"><h2>Em cadência</h2><small>trabalhando o lead</small>
+  <div class="cont"><span class="c-red">41 esperando você</span><span class="c-amber">90</span><span class="c-green">42</span></div></div>
+
+ <div class="card red">
+  <div class="top"><span class="jev A">A · Jev</span><span class="nome">MARCOS</span><span class="posse alerta">⏳ 12d</span></div>
+  <div class="estado"><span class="dot"></span>Respondeu há 2 dias · esperando você</div>
+  <div class="meta">💬 "consigo parcelar em quantas vezes?" · 24/10, 21:35<br>+55 (92) 99316-1955 · <code>meta_ads</code> · Elite TJ-AM</div>
+  <div class="aviso">⚠ volta para a recuperação da Anne em 2 dias se não houver atividade</div>
+  <div class="btns"><a class="btn g">Dados do lead</a><a class="btn t">Responder no Inbox</a></div>
+  <div class="chips"><span class="chip">📞 Atendida</span><span class="chip">📵 Não atendeu ×1</span><span class="chip">📅 Agendar</span><span class="chip">↩ Devolver</span></div>
+ </div>
+
+ <div class="card amber">
+  <div class="top"><span class="jev A">A · Jev</span><span class="nome">Leizanir</span><span class="posse">⏳ 10d</span></div>
+  <div class="estado"><span class="dot"></span>Sem próxima ação</div>
+  <div class="meta">Você respondeu 23/10, 22:10 · lead não voltou<br>+55 (94) 99254-3726 · <code>souwebinario</code> · Elite TJ-AM</div>
+  <div class="btns"><a class="btn g">▶ Marcar próxima ação</a><a class="btn t">Inbox</a></div>
+  <div class="chips"><span class="chip">📵 Não atendeu ×2</span><span class="chip">📅 Agendar</span><span class="chip">↩ Devolver</span></div>
+ </div>
+
+ <div class="card green">
+  <div class="top"><span class="jev B">B · Jev</span><span class="nome">Ana Paula</span><span class="posse">⏳ 3d</span></div>
+  <div class="estado"><span class="dot"></span>Próxima ação: ligar amanhã 09h</div>
+  <div class="meta">Link enviado 24/10, 18:02 · esperando o lead<br>+55 (92) 98123-4455 · <code>blindado</code> · Elite SEDUC-AM</div>
+  <div class="btns"><a class="btn g">Dados do lead</a><a class="btn t">Inbox</a></div>
+ </div>
+
+ <div class="card grey">
+  <div class="top"><span class="jev C">C · Jev</span><span class="nome">Roberto</span><span class="posse">⏳ 9d</span></div>
+  <div class="estado"><span class="dot"></span>Frio · não atendeu ×3, sem resposta há 9 dias</div>
+  <div class="meta">+55 (92) 99900-1122 · <code>carrinho</code> · Elite PRF</div>
+  <div class="aviso cinza">Decidir: devolver para a Anne ou última tentativa</div>
+  <div class="btns"><a class="btn g">↩ Devolver</a><a class="btn t">Última tentativa</a></div>
+ </div>
+</div>
+
+<div class="col">
+ <div class="colh"><h2>Inbox</h2><small>ordenado por urgência, não por data</small>
+  <div class="cont"><span class="c-red">7 esperando</span><span class="c-amber">3 sem dono</span><span class="c-grey">12 frios</span></div></div>
+ <div class="lista">
+  <div class="row red meu"><div class="rn">Isaias</div><div class="rt">há 2 d 4 h</div>
+   <div class="rc"><span class="tag eu">👤 você</span><span class="tag ico" data-i="⚖️">Elite TJ-AM</span><span class="tag">Com humano</span><span class="st"><span class="b"></span>esperando você</span></div></div>
+  <div class="row red"><div class="rn">O F G NETO-ME</div><div class="rt">há 26 h</div>
+   <div class="rc"><span class="tag semdono">sem dono</span><span class="tag ico" data-i="🚔">Nutrição · PRF</span><span class="tag">Com humano</span><span class="st"><span class="b"></span>esperando resposta</span></div></div>
+  <div class="row amber meu"><div class="rn">Hayala</div><div class="rt">há 6 h</div>
+   <div class="rc"><span class="tag eu">👤 você</span><span class="tag ico" data-i="🎧">Play Passei · Onboarding</span><span class="tag">Com humano</span><span class="st"><span class="b"></span>esperando você</span></div></div>
+  <div class="row amber"><div class="rn">Victorio Touro</div><div class="rt">há 1 h 20</div>
+   <div class="rc"><span class="tag semdono">sem dono</span><span class="tag ico" data-i="🚔">Nutrição · PRF</span><span class="tag">Escalado pela Anne</span><span class="st"><span class="b"></span>assumir</span></div></div>
+  <div class="row green"><div class="rn">A.C.</div><div class="rt">há 20 min</div>
+   <div class="rc"><span class="tag">👤 Ellen</span><span class="tag ico" data-i="⚖️">Nutrição · TJ-AM</span><span class="tag">Com humano</span><span class="st"><span class="b"></span>no prazo</span></div></div>
+  <div class="row green"><div class="rn">Carla M.</div><div class="rt">você respondeu</div>
+   <div class="rc"><span class="tag eu">👤 você</span><span class="tag ico" data-i="🏫">Elite SEDUC-AM</span><span class="tag">Com humano</span><span class="st"><span class="b"></span>esperando o lead</span></div></div>
+  <div class="row grey meu"><div class="rn">kizenir</div><div class="rt">há 93 dias</div>
+   <div class="rc"><span class="tag eu">👤 você</span><span class="tag ico" data-i="⚖️">Elite TJ-AM</span><span class="tag">Com humano</span><span class="st"><span class="b"></span>decidir: devolver ou retomar</span></div></div>
+  <div class="row grey"><div class="rn">Marcelo S.</div><div class="rt">há 53 dias</div>
+   <div class="rc"><span class="tag">👤 Jonas</span><span class="tag ico" data-i="⚖️">Nutrição · TJ-AM</span><span class="tag">Com humano</span><span class="st"><span class="b"></span>decidir: devolver ou retomar</span></div></div>
+ </div>
+ <div class="nota">Regras de tempo do Inbox: verde até 1 h · âmbar de 1 h a 24 h · vermelho acima de 24 h · cinza acima de 14 dias (deixa de ser "falta responder" e vira decisão). Fundo levemente dourado = lead seu. Quando o inbox por vendedor for ligado, "sem dono" e os leads dos colegas somem da lista do vendedor; o admin continua vendo tudo.</div>
+</div>
+</div>
+</body></html>
