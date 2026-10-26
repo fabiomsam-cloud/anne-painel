@@ -200,6 +200,7 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
   const [enviandoTpl, setEnviandoTpl] = useState(false)
   const [msgTpl, setMsgTpl] = useState('')
   const [infoAberto, setInfoAberto] = useState(false)
+  const [menuAberto, setMenuAberto] = useState(false)   // ⋯ do cabeçalho (26/10): só admin, guarda a lixeira
   const [kb, setKb] = useState<{ title: string; doc_type: string; content: string; agent: string } | null>(null)
   const [kbAgentes, setKbAgentes] = useState<{ slug: string; name: string }[]>([])
   const [kbEnviando, setKbEnviando] = useState(false)
@@ -559,12 +560,9 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
     setSel(s => (s && s.id === sel.id ? { ...s, responsavel_email: meuEmail } : s))
   }
 
-  const devolverIA = async () => {
+  // 26/10: o banco já mudou a conversa para 'ia' (RPC fn_inbox_devolver_anne, na barra ☎️); aqui só avisa o n8n
+  const devolvidoAnne = () => {
     if (!sel) return
-    await supabase.from('conversations').update({ status: 'ia' }).eq('id', sel.id)
-    await supabase.from('escalations').update({ status: 'resolved', resolved_at: new Date().toISOString() })
-      .eq('conversation_id', sel.id).eq('status', 'open')
-    setSel({ ...sel, status: 'ia' })
     // IA retoma imediatamente a partir da resposta do time (regra 13b)
     fetch('https://workflows.manager03.scvpgti.com.br/webhook/anne/painel/devolver', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1029,35 +1027,40 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                     dataInicial={agMap[sel.id] ?? null} aberta={reguaAberta} onClose={() => setAgendarAberto(false)}
                     onOk={() => { setAgendarAberto(false); carregarAg(); carregarConvs() }} />
                 )}
-                {sel.status === 'humano_comercial' ? (
-                  <span className="text-[11px] font-mono px-2.5 py-1.5 rounded-lg border border-gold/50 text-gold bg-gold/10"
-                    title="Lead de posse de um vendedor do Comercial Humano — ligações e devolução na barra logo abaixo">
-                    ☎️ Comercial Humano
-                  </span>
-                ) : sel.status === 'human' ? (
-                  <button onClick={devolverIA}
-                    className="text-xs font-semibold bg-teal/15 text-teal border border-teal/40 rounded-lg px-3 py-1.5 hover:bg-teal/25 transition">
-                    ↩ Devolver para a IA
-                  </button>
-                ) : (
+                {/* 26/10: Encerrar · Devolver para a Anne · Comercial vivem na barra logo abaixo, iguais com e sem card */}
+                {!['human', 'humano_comercial', 'won', 'opted_out'].includes(sel.status) && (
                   <button onClick={assumir}
                     className="text-xs font-semibold bg-gold/15 text-gold border border-gold/40 rounded-lg px-3 py-1.5 hover:bg-gold/25 transition">
                     ✋ Assumir conversa
                   </button>
                 )}
-                <button onClick={apagarConversa} title="Apagar conversa e zerar memória do lead"
-                  className="text-xs text-danger/80 border border-danger/30 rounded-lg px-2.5 py-1.5 hover:bg-danger/10 hover:text-danger transition">
-                  🗑
-                </button>
+                {isAdmin && (
+                  <div className="relative">
+                    <button onClick={() => setMenuAberto(v => !v)} title="Mais ações (admin)"
+                      className="text-xs text-dim border border-line rounded-lg px-2.5 py-1.5 hover:text-cream transition">⋯</button>
+                    {menuAberto && (
+                      <>
+                        <div className="fixed inset-0 z-30" onClick={() => setMenuAberto(false)} />
+                        <div className="absolute right-0 top-9 z-40 bg-panel border border-line rounded-xl shadow-2xl p-1 min-w-[220px]">
+                          <button onClick={() => { setMenuAberto(false); apagarConversa() }}
+                            className="w-full text-left text-xs text-danger/80 rounded-lg px-3 py-2 hover:bg-danger/10 hover:text-danger transition">
+                            🗑 Apagar conversa e zerar memória
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
             {/* ☎️ Comercial Humano no Inbox (itens 1 e 6, 16/10): puxar p/ pipeline + registros do card */}
             <ComercialNoInbox convId={sel.id} status={sel.status} nome={sel.contacts?.name || fmtFone(sel.contacts?.phone)}
               optedOut={!!sel.contacts?.opted_out} isAdmin={isAdmin} meuEmail={meuEmail} vendedores={vendedores}
+              responsavel={sel.responsavel_email} aoDevolvidoAnne={devolvidoAnne}
               aoMudarStatus={(status, responsavel) => {
-                setSel(s => (s && s.id === sel.id ? { ...s, status, responsavel_email: responsavel ?? s.responsavel_email } : s))
-                carregarConvs()
+                setSel(s => (s && s.id === sel.id ? { ...s, status, responsavel_email: responsavel } : s))
+                carregarConvs(); carregarMsgs(sel.id)
               }} />
             <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-2">
               {msgTpl && !kb && (

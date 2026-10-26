@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase, fmtHora } from '../lib/supabase'
-import { MOTIVOS, ATIV_LABEL, ESTRATO_CLS, diasRestantes } from '../lib/comercial'
+import { MOTIVOS, MOTIVOS_RECUPERACAO, ATIV_LABEL, ESTRATO_CLS, diasRestantes } from '../lib/comercial'
 
 // ============================================================
 // ☎️ Comercial Humano DENTRO do Inbox (itens 1 e 6 do PDF da equipe, 16/10/2026)
@@ -11,6 +11,10 @@ import { MOTIVOS, ATIV_LABEL, ESTRATO_CLS, diasRestantes } from '../lib/comercia
 //    botões do card do pipeline (📞 Atendida · 📵 Não atendeu · 🗓 Agendar ligação · ↩ Devolver).
 //    💳 Agendar matrícula já existe no cabeçalho do Inbox (🗓 Agendar) — não duplica.
 //  Quem opera: o dono do card ou admin; outros só veem a posse.
+//  26/10: barra ÚNICA para toda conversa com humano, com ou sem card — os mesmos botões nas duas telas:
+//    ⏹ Encerrar (motivo obrigatório; fecha o card se houver; conversa adormece; motivos de venda → recuperação)
+//    ↩ Devolver para a Anne (a Anne retoma a cadência; fecha o card se houver)
+//    ☎️ Puxar / Enviar para o Comercial (sem card). RPCs fn_inbox_encerrar / fn_inbox_devolver_anne (migration 51).
 // ============================================================
 
 type Vend = { id: string; nome: string; email: string; tipo: string; ativo: boolean }
@@ -23,9 +27,11 @@ type Ativ = { id: string; tipo: string; nota: string | null; agendada_para: stri
 
 const inp = 'bg-panel border border-line rounded-lg px-3 py-2 text-sm text-cream focus:outline-none focus:border-gold/60 placeholder:text-dim/40'
 
-export default function ComercialNoInbox({ convId, status, nome, optedOut, isAdmin, meuEmail, vendedores, aoMudarStatus }: {
+export default function ComercialNoInbox({ convId, status, nome, optedOut, isAdmin, meuEmail, vendedores, responsavel, aoMudarStatus, aoDevolvidoAnne }: {
   convId: string; status: string; nome: string; optedOut: boolean; isAdmin: boolean; meuEmail: string
-  vendedores: Vend[]; aoMudarStatus: (status: string, responsavel: string | null) => void
+  vendedores: Vend[]; responsavel: string | null
+  aoMudarStatus: (status: string, responsavel: string | null) => void
+  aoDevolvidoAnne: () => void     // Inbox avisa o n8n para a Anne retomar na hora
 }) {
   const [card, setCard] = useState<Card | null>(null)
   const [ativs, setAtivs] = useState<Ativ[]>([])
@@ -72,6 +78,16 @@ export default function ComercialNoInbox({ convId, status, nome, optedOut, isAdm
   const podeOperar = !!card && (isAdmin || (!!meuVend && card.vendedor_id === meuVend.id))
   const podeEnviar = !card && !optedOut && ['human', 'dormant', 'paused'].includes(status)
     && (isAdmin || meuVend?.tipo === 'closer')
+  // 26/10: ações comuns às duas telas (conversa com humano, com ou sem card)
+  const comHumano = ['human', 'humano_comercial'].includes(status)
+  const souDono = !!responsavel && responsavel.toLowerCase() === meuEmail.toLowerCase()
+  const podeEncerrar = comHumano && (card ? podeOperar : (isAdmin || souDono || !responsavel))
+  const podeAnne = podeEncerrar
+  const nomeDono = (email: string | null) => {
+    if (!email) return ''
+    const v = vendedores.find(v => v.email.toLowerCase() === email.toLowerCase())
+    return v ? v.nome : email.split('@')[0]
+  }
 
   // ---- item 1: puxar/enviar para o Comercial (RPC atômica; regras no banco) ----
   const enviar = async (vendedorId: string) => {
@@ -119,17 +135,31 @@ export default function ComercialNoInbox({ convId, status, nome, optedOut, isAdm
     flash('✅ Próxima ação registrada.')
     carregar()
   }
-  const devolver = async () => {
-    if (!card || !motivo) return
-    const { error } = await supabase.from('lead_assignments').update({
-      status: 'devolvido', motivo_perda: motivo + (notaDev.trim() ? ` — ${notaDev.trim()}` : ''),
-      closed_at: new Date().toISOString(),
-    }).eq('id', card.id).eq('status', 'ativo')
+  // ⏹ Encerrar: RPC atômica (card devolvido com motivo + conversa dormant + recuperação quando o motivo é de venda)
+  const encerrar = async () => {
+    if (!motivo || ocupado) return
+    setOcupado(true)
+    const { data, error } = await supabase.rpc('fn_inbox_encerrar', { p_conversation_id: convId, p_motivo: motivo, p_nota: notaDev.trim() || null })
+    setOcupado(false)
     if (error) return flash('⚠️ ' + error.message)
-    await supabase.from('conversations').update({ status: 'dormant' }).eq('id', convId).eq('status', 'humano_comercial')
+    if (!data?.ok) return flash('⚠️ ' + (data?.erro ?? 'Não foi possível encerrar.'))
     aoMudarStatus('dormant', null)
     setDevolvendo(false); setMotivo(''); setNotaDev('')
-    flash('Lead devolvido para a base — motivo registrado.')
+    flash(data.recuperacao ? '⏹ Conversa encerrada — o lead entrou na recuperação (desconto e nutrição).' : '⏹ Conversa encerrada — saiu do inbox.')
+    carregar()
+  }
+  // ↩ Devolver para a Anne: ela retoma a cadência de onde parou (fecha o card, se houver)
+  const devolverAnne = async () => {
+    if (ocupado) return
+    if (!window.confirm(`Devolver ${nome} para a Anne?\n\nEla retoma a cadência de onde parou e volta a mandar mensagens.${card ? ' O card do Comercial é fechado.' : ''}`)) return
+    setOcupado(true)
+    const { data, error } = await supabase.rpc('fn_inbox_devolver_anne', { p_conversation_id: convId })
+    setOcupado(false)
+    if (error) return flash('⚠️ ' + error.message)
+    if (!data?.ok) return flash('⚠️ ' + (data?.erro ?? 'Não foi possível devolver.'))
+    aoMudarStatus('ia', responsavel)
+    aoDevolvidoAnne()
+    flash('↩ Devolvido para a Anne — ela retoma a cadência agora.')
     carregar()
   }
 
@@ -141,63 +171,83 @@ export default function ComercialNoInbox({ convId, status, nome, optedOut, isAdm
   const nAt = contar('ligacao_atendida'), nNao = contar('ligacao_nao_atendida')
   const btn = 'text-[11px] border rounded-lg px-2 py-1 transition disabled:opacity-40'
 
-  if (!card && !podeEnviar && !msg) return null
+  if (!card && !podeEnviar && !comHumano && !msg) return null
+  const acoes = (
+    <div className="ml-auto flex gap-1 flex-wrap">
+      {podeOperar && card && (
+        <>
+          <button onClick={() => registrar('ligacao_atendida')} disabled={ocupado}
+            className={btn + ' border-line text-dim hover:text-win hover:border-win/40'}>📞 Atendida{nAt > 0 ? ` ×${nAt}` : ''}</button>
+          <button onClick={() => registrar('ligacao_nao_atendida')} disabled={ocupado}
+            className={btn + ' border-line text-dim hover:text-danger hover:border-danger/40'}>📵 Não atendeu{nNao > 0 ? ` ×${nNao}` : ''}</button>
+          <button onClick={() => { setProxTxt(card.proxima_acao ?? ''); setProxDt(''); setProxModal(true) }}
+            className={btn + (card.proxima_acao_em && new Date(card.proxima_acao_em).getTime() > Date.now() ? ' border-line text-dim hover:text-gold hover:border-gold/40' : ' border-gold/60 text-gold bg-gold/10')}>▶ Próxima ação</button>
+          <button onClick={() => { setDtAgenda(''); setAgendando(true) }}
+            className={btn + ' border-line text-dim hover:text-gold hover:border-gold/40'}>🗓 Agendar ligação</button>
+        </>
+      )}
+      {podeEnviar && (
+        <button onClick={puxar} disabled={ocupado}
+          title={meuVend?.tipo === 'closer'
+            ? 'Puxa o lead para o SEU pipeline: registra ligações, conta na sua métrica e a Anne não mexe mais nele'
+            : 'Envia o lead para o pipeline de um closer do Comercial Humano'}
+          className={btn + ' border-gold/40 text-gold bg-gold/10 hover:bg-gold/20 font-semibold'}>
+          {ocupado ? 'Enviando…' : meuVend?.tipo === 'closer' ? '☎️ Puxar para meu pipeline' : '☎️ Enviar para o Comercial'}
+        </button>
+      )}
+      {podeAnne && (
+        <button onClick={devolverAnne} disabled={ocupado} title="A Anne retoma a cadência deste lead de onde parou"
+          className={btn + ' border-teal/40 text-teal bg-teal/10 hover:bg-teal/20 font-semibold'}>↩ Devolver para a Anne</button>
+      )}
+      {podeEncerrar && (
+        <button onClick={() => { setMotivo(''); setNotaDev(''); setDevolvendo(true) }} disabled={ocupado}
+          title="Tira a conversa do inbox com um motivo (fecha o card do Comercial, se houver)"
+          className={btn + ' border-danger/40 text-danger bg-danger/10 hover:bg-danger/20 font-semibold'}>⏹ Encerrar</button>
+      )}
+    </div>
+  )
   return (
     <>
       {msg && <div className="rise mx-4 mt-2 text-xs rounded-lg border border-win/40 bg-win/10 text-win px-3 py-2">{msg}</div>}
 
-      {card ? (
-        <div className="px-3 md:px-5 py-2 border-b border-line bg-gold/5 flex items-center gap-2 flex-wrap text-[11px]">
-          <span className="font-mono px-2 py-1 rounded-lg border border-gold/50 text-gold bg-gold/10"
-            title="Lead de posse de um vendedor do Comercial Humano (14 dias)">
-            ☎️ Posse de {card.vendedores?.nome ?? 'vendedor'} · ⏳{diasRestantes(card.expires_at)}d
-          </span>
-          <span className={`font-mono px-1.5 py-0.5 rounded border ${ESTRATO_CLS[card.estrato] ?? ESTRATO_CLS.C}`} title="Estrato do lead (A quente · B morno · C frio)">{card.estrato}</span>
-          {nNao > 0 && <span className="font-mono px-1.5 py-0.5 rounded border border-danger/30 text-danger/90 bg-danger/5">📵 ×{nNao}</span>}
-          {nAt > 0 && <span className="font-mono px-1.5 py-0.5 rounded border border-win/40 text-win bg-win/5">📞 ×{nAt}</span>}
-          {card.proxima_acao_em ? (
-            <span className={new Date(card.proxima_acao_em).getTime() < Date.now() ? 'text-danger' : 'text-gold'}
-              title="Próxima ação combinada (Comercial v2)">
-              ▶ {card.proxima_acao} · {fmtHora(card.proxima_acao_em)}{new Date(card.proxima_acao_em).getTime() < Date.now() ? ' · VENCIDA' : ''}
+      {(card || podeEnviar || comHumano) && (
+        <div className={`px-3 md:px-5 py-2 border-b border-line flex items-center gap-2 flex-wrap text-[11px] ${card ? 'bg-gold/5' : ''}`}>
+          {card ? (
+            <>
+              <span className="font-mono px-2 py-1 rounded-lg border border-gold/50 text-gold bg-gold/10"
+                title="Lead de posse de um vendedor do Comercial Humano (14 dias)">
+                ☎️ Posse de {card.vendedores?.nome ?? 'vendedor'} · ⏳{diasRestantes(card.expires_at)}d
+              </span>
+              <span className={`font-mono px-1.5 py-0.5 rounded border ${ESTRATO_CLS[card.estrato] ?? ESTRATO_CLS.C}`} title="Classe do Jev (A quente · B morno · C frio)">{card.estrato}</span>
+              {nNao > 0 && <span className="font-mono px-1.5 py-0.5 rounded border border-danger/30 text-danger/90 bg-danger/5">📵 ×{nNao}</span>}
+              {nAt > 0 && <span className="font-mono px-1.5 py-0.5 rounded border border-win/40 text-win bg-win/5">📞 ×{nAt}</span>}
+              {card.proxima_acao_em ? (
+                <span className={new Date(card.proxima_acao_em).getTime() < Date.now() ? 'text-amber' : 'text-gold'}
+                  title="Próxima ação combinada (Comercial v2)">
+                  ▶ {card.proxima_acao} · {fmtHora(card.proxima_acao_em)}{new Date(card.proxima_acao_em).getTime() < Date.now() ? ' · VENCIDA' : ''}
+                </span>
+              ) : (
+                <span className="text-amber" title="Todo lead em posse precisa de próxima ação com data (24 h após a atribuição)">▶ sem próxima ação</span>
+              )}
+              {proxAgendada ? (
+                <span className="text-gold">🗓 Ligação marcada · {fmtHora(proxAgendada.agendada_para)}</span>
+              ) : ult ? (
+                <span className="text-dim">{ATIV_LABEL[ult.tipo] ?? ult.tipo} · {fmtHora(ult.created_at)}{ult.nota ? ` — ${ult.nota}` : ''}</span>
+              ) : (
+                <span className="text-dim">sem tentativa registrada — ligue hoje</span>
+              )}
+            </>
+          ) : comHumano ? (
+            <span className={`font-mono px-2 py-1 rounded-lg border ${responsavel ? 'border-line text-dim' : 'border-amber/50 text-amber bg-amber/10'}`}
+              title={responsavel ? 'Conversa com humano — responsável no seletor 👤 acima' : 'Conversa com humano sem responsável: assuma pelo seletor 👤 ou encerre'}>
+              👤 Com humano · {responsavel ? nomeDono(responsavel) : 'sem dono'}
             </span>
           ) : (
-            <span className="text-danger" title="Todo lead em posse precisa de próxima ação com data (24 h após a atribuição)">▶ sem próxima ação</span>
+            <span className="text-dim">Lead adormecido — a Anne atende se ele escrever.</span>
           )}
-          {proxAgendada ? (
-            <span className="text-gold">🗓 Ligação marcada · {fmtHora(proxAgendada.agendada_para)}</span>
-          ) : ult ? (
-            <span className="text-dim">{ATIV_LABEL[ult.tipo] ?? ult.tipo} · {fmtHora(ult.created_at)}{ult.nota ? ` — ${ult.nota}` : ''}</span>
-          ) : (
-            <span className="text-dim">sem tentativa registrada — ligue hoje</span>
-          )}
-          {podeOperar && (
-            <div className="ml-auto flex gap-1 flex-wrap">
-              <button onClick={() => registrar('ligacao_atendida')} disabled={ocupado}
-                className={btn + ' border-line text-dim hover:text-win hover:border-win/40'}>📞 Atendida{nAt > 0 ? ` ×${nAt}` : ''}</button>
-              <button onClick={() => registrar('ligacao_nao_atendida')} disabled={ocupado}
-                className={btn + ' border-line text-dim hover:text-danger hover:border-danger/40'}>📵 Não atendeu{nNao > 0 ? ` ×${nNao}` : ''}</button>
-              <button onClick={() => { setProxTxt(card.proxima_acao ?? ''); setProxDt(''); setProxModal(true) }}
-                className={btn + (card.proxima_acao_em && new Date(card.proxima_acao_em).getTime() > Date.now() ? ' border-line text-dim hover:text-gold hover:border-gold/40' : ' border-gold/60 text-gold bg-gold/10')}>▶ Próxima ação</button>
-              <button onClick={() => { setDtAgenda(''); setAgendando(true) }}
-                className={btn + ' border-line text-dim hover:text-gold hover:border-gold/40'}>🗓 Agendar ligação</button>
-              <button onClick={() => { setMotivo(''); setNotaDev(''); setDevolvendo(true) }}
-                className={btn + ' border-danger/30 text-danger/80 hover:bg-danger/10'}>↩ Devolver</button>
-            </div>
-          )}
+          {acoes}
         </div>
-      ) : podeEnviar ? (
-        <div className="px-3 md:px-5 py-2 border-b border-line flex items-center gap-2 flex-wrap text-[11px]">
-          <span className="text-dim">
-            {meuVend?.tipo === 'closer'
-              ? 'Está trabalhando este lead? Puxe para o seu pipeline: registra ligações, conta na sua métrica e a Anne não mexe mais nele.'
-              : 'Lead com humano e sem vendedor: envie para o pipeline de um closer do Comercial Humano.'}
-          </span>
-          <button onClick={puxar} disabled={ocupado}
-            className="ml-auto text-xs font-semibold bg-gold/15 text-gold border border-gold/40 rounded-lg px-3 py-1.5 hover:bg-gold/25 transition disabled:opacity-40">
-            {ocupado ? 'Enviando…' : meuVend?.tipo === 'closer' ? '☎️ Puxar para meu pipeline' : '☎️ Enviar para o Comercial'}
-          </button>
-        </div>
-      ) : null}
+      )}
 
       {/* Modal admin: escolher o closer */}
       {escolhendo && (
@@ -259,28 +309,30 @@ export default function ComercialNoInbox({ convId, status, nome, optedOut, isAdm
         </>
       )}
 
-      {/* Modal: devolver com motivo obrigatório */}
+      {/* Modal: encerrar com motivo obrigatório (26/10 — vale com e sem card) */}
       {devolvendo && (
         <>
           <div className="fixed inset-0 z-40 bg-ink/60" onClick={() => setDevolvendo(false)} />
           <div className="fixed z-50 inset-x-4 top-24 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-[26rem] bg-panel border border-line rounded-2xl shadow-2xl p-5 space-y-3">
-            <h2 className="font-display font-semibold">↩ Devolver lead para a base</h2>
+            <h2 className="font-display font-semibold">⏹ Encerrar conversa</h2>
             <p className="text-[11px] text-dim">
-              {nome} sai da posse e volta a receber campanhas. O motivo é obrigatório — alimenta a evolução da Anne e as métricas do time.
+              {nome} sai do inbox{card ? ' e o card do Comercial é devolvido com este motivo' : ''}. Motivos de venda (sem interesse, preço, vai pensar…) mandam o lead
+              para a recuperação (desconto e nutrição); "já é aluno" e "telefone inválido" só encerram. Se ele escrever de novo, a Anne atende.
             </p>
             <div className="flex flex-wrap gap-1.5">
               {MOTIVOS.map(m => (
                 <button key={m} onClick={() => setMotivo(m)}
                   className={`text-xs px-2.5 py-1.5 rounded-lg border transition ${motivo === m ? 'border-gold/60 bg-gold/10 text-cream' : 'border-line text-dim hover:text-cream'}`}>
-                  {m.replace(/_/g, ' ')}
+                  {m.replace(/_/g, ' ')}{MOTIVOS_RECUPERACAO.includes(m) ? ' ↻' : ''}
                 </button>
               ))}
             </div>
+            <div className="text-[10px] text-dim">↻ = vai para a recuperação</div>
             <input className={inp + ' w-full'} placeholder="Observação (opcional)" value={notaDev} onChange={e => setNotaDev(e.target.value)} />
             <div className="flex gap-2">
               <button onClick={() => setDevolvendo(false)} className="flex-1 text-sm border border-line text-dim rounded-lg py-2 hover:text-cream transition">Cancelar</button>
-              <button onClick={devolver} disabled={!motivo}
-                className="flex-1 text-sm font-semibold bg-danger/15 text-danger border border-danger/40 rounded-lg py-2 disabled:opacity-40 hover:bg-danger/25 transition">Confirmar devolução</button>
+              <button onClick={encerrar} disabled={!motivo || ocupado}
+                className="flex-1 text-sm font-semibold bg-danger/15 text-danger border border-danger/40 rounded-lg py-2 disabled:opacity-40 hover:bg-danger/25 transition">{ocupado ? 'Encerrando…' : 'Encerrar'}</button>
             </div>
           </div>
         </>

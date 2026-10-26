@@ -1,5 +1,7 @@
 // Constantes do Comercial Humano compartilhadas entre a aba ☎️ Comercial e a barra do Inbox (16/10).
-export const MOTIVOS = ['sem_interesse', 'sem_dinheiro_agora', 'preco', 'vai_pensar', 'concorrente', 'sem_contato', 'telefone_invalido', 'outro']
+export const MOTIVOS = ['ja_e_aluno', 'sem_interesse', 'sem_dinheiro_agora', 'preco', 'vai_pensar', 'concorrente', 'sem_contato', 'telefone_invalido', 'outro']
+// motivos que mandam o lead para a recuperação (desconto + nutrição); os demais só encerram (26/10)
+export const MOTIVOS_RECUPERACAO = ['sem_interesse', 'sem_dinheiro_agora', 'preco', 'vai_pensar', 'concorrente', 'sem_contato']
 export const ATIV_LABEL: Record<string, string> = {
   ligacao_atendida: '📞 Atendida', ligacao_nao_atendida: '📵 Não atendeu',
   ligacao_agendada: '🗓 Agendada', whatsapp: '💬 WhatsApp', nota: '📝 Nota',
