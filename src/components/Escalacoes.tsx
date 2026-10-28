@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { coalescer } from '../lib/coalescer'
 import { supabase, fmtHora, fmtFone } from '../lib/supabase'
 import AgendarModal, { useReguaAberta } from './AgendarModal'
@@ -16,6 +16,7 @@ export default function Escalacoes({ irParaInbox, isAdmin = false }:
   { irParaInbox: (convId?: string) => void; isAdmin?: boolean }) {
   const [escs, setEscs] = useState<Esc[]>([])
   const [mostrarResolvidas, setMostrarResolvidas] = useState(false)
+  const mostrarResolvidasRef = useRef(mostrarResolvidas)
   // "Enviar para Comercial" (só admin): escolhe o vendedor → RPC fn_enviar_para_comercial (migration 33)
   const [vendedores, setVendedores] = useState<Vendedor[]>([])
   const [enviando, setEnviando] = useState<Esc | null>(null)
@@ -31,16 +32,27 @@ export default function Escalacoes({ irParaInbox, isAdmin = false }:
   // enquanto a lista ainda nem tinha chegado (o contador da barra lateral já marcava 5)
   const [carregando, setCarregando] = useState(true)
   const [erroCarga, setErroCarga] = useState('')
-  const carregar = async () => {
-    const { data, error } = await supabase
-      .from('escalations')
-      .select('id,reason,question_text,status,claimed_by,created_at,resolved_at,conversations(id,status,contacts(name,phone))')
-      .order('created_at', { ascending: false })
-      .limit(100)
-    if (error) setErroCarga(error.message)
-    else { setErroCarga(''); setEscs((data as any) ?? []) }
+  // 28/10: pendentes (open/claimed) SEMPRE e sem limite; resolvidas só com o toggle, as 100 mais recentes.
+  // Antes era um único select com limit(100) por created_at de qualquer status: com >100 escalações criadas
+  // e resolvidas desde 23/10, as 13 abertas ficavam fora do corte e a tela dizia "nenhuma pendente"
+  // enquanto o contador da barra lateral (count de status=open) marcava 13.
+  const SEL = 'id,reason,question_text,status,claimed_by,created_at,resolved_at,conversations(id,status,contacts(name,phone))'
+  const carregar = async (comResolvidas = mostrarResolvidasRef.current) => {
+    const pend = await supabase.from('escalations').select(SEL)
+      .neq('status', 'resolved').order('created_at', { ascending: false })
+    if (pend.error) { setErroCarga(pend.error.message); setCarregando(false); return }
+    let lista = ((pend.data as any) ?? []) as Esc[]
+    if (comResolvidas) {
+      const res = await supabase.from('escalations').select(SEL)
+        .eq('status', 'resolved').order('created_at', { ascending: false }).limit(100)
+      if (res.error) { setErroCarga(res.error.message); setCarregando(false); return }
+      lista = [...lista, ...(((res.data as any) ?? []) as Esc[])]
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    }
+    setErroCarga(''); setEscs(lista)
     setCarregando(false)
   }
+  useEffect(() => { mostrarResolvidasRef.current = mostrarResolvidas; carregar(mostrarResolvidas) }, [mostrarResolvidas])
 
   useEffect(() => {
     if (!isAdmin) return
@@ -49,8 +61,7 @@ export default function Escalacoes({ irParaInbox, isAdmin = false }:
   }, [isAdmin])
 
   useEffect(() => {
-    carregar()
-    const recarregar = coalescer(carregar, 2000)
+    const recarregar = coalescer(() => carregar(), 2000)
     const ch = supabase.channel('escs')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'escalations' }, recarregar)
       .subscribe()
