@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import FilaAtribuir from './FilaAtribuir'
 import { supabase, AGENT_LABEL, fmtFone, fmtHora } from '../lib/supabase'
 import ComercialMetricas from './ComercialMetricas'
+import ComercialLeads from './ComercialLeads'   // 📥 leads por planilha, só admin (29/10)
 import AgendarModal, { useReguaAberta } from './AgendarModal'
 import { podeAgendar } from '../lib/agendamento'
 import { MOTIVOS, ATIV_LABEL, ESTRATO_CLS, diasRestantes } from '../lib/comercial'
@@ -67,7 +68,7 @@ async function fetchAll<T>(monta: (de: number, ate: number) => any): Promise<T[]
 
 export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId = null, meuTipo = null }:
   { irParaInbox: (convId: string) => void; isAdmin?: boolean; meuVendedorId?: string | null; meuTipo?: string | null }) {
-  const [subTab, setSubTab] = useState<'pipeline' | 'metricas' | 'gestao'>('pipeline')
+  const [subTab, setSubTab] = useState<'pipeline' | 'metricas' | 'gestao' | 'leads'>('pipeline')
   const [vendedores, setVendedores] = useState<Vendedor[]>([])
   const [meuEmail, setMeuEmail] = useState('')
   const [vendSel, setVendSel] = useState('')
@@ -328,7 +329,7 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
       <div className="px-4 md:px-6 pt-4 pb-3 border-b border-line flex items-center gap-3 flex-wrap">
         <h1 className="font-display font-bold text-xl">☎️ Comercial Humano</h1>
         <div className="flex gap-1 ml-auto">
-          {([['pipeline', '📋 Pipeline'], ['metricas', '📈 Métricas'], ['gestao', '📊 Gestão']] as const)
+          {([['pipeline', '📋 Pipeline'], ['metricas', '📈 Métricas'], ['gestao', '📊 Gestão'], ['leads', '📥 Leads']] as const)
             .filter(([id]) => isAdmin || id === 'pipeline')
             .map(([id, lbl]) => (
             <button key={id} onClick={() => setSubTab(id)}
@@ -559,6 +560,8 @@ export default function Comercial({ irParaInbox, isAdmin = true, meuVendedorId =
         </div>
       ) : subTab === 'metricas' ? (
         <ComercialMetricas vendedores={vendedores} />
+      ) : subTab === 'leads' ? (
+        <ComercialLeads vendedores={vendedores} flash={flash} />
       ) : (
         <Gestao vendedores={vendedores} recarregarVendedores={carregarVendedores} flash={flash} />
       )}
