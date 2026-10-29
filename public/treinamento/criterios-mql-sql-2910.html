@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Critérios MQL e SQL</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Bricolage+Grotesque:wght@600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{--bg:#f6f4ee;--fg:#1c2420;--muted:#5d6a63;--line:#dcd8cc;--card:#fffdf8;--accent:#0f6e5c;--accent-soft:#e3f0ea;
+ --display:"Bricolage Grotesque",Georgia,serif;--body:Figtree,-apple-system,"Segoe UI",sans-serif;--mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+ --p-ink:#0b1512;--p-panel:#101d19;--p-panel2:#16261f;--p-line:#1f332a;--p-gold:#f5b942;--p-teal:#35d0ba;--p-cream:#e8efe9;--p-dim:#8aa396;
+ --red:#e06f6f;--amber:#ef9a3c;--green:#6fe08c;--grey:#5f7368;--purple:#b89cff;--blue:#6fb3e0}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121816;--fg:#e8efe9;--muted:#9db0a6;--line:#263730;--card:#18221e;--accent:#4fd1b3;--accent-soft:#17302a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#121816;--fg:#e8efe9;--muted:#9db0a6;--line:#263730;--card:#18221e;--accent:#4fd1b3;--accent-soft:#17302a;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 var(--body);padding-block:0 60px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:860px;margin:0 auto}
+h1,h2,h3{font-family:var(--display);line-height:1.15;text-wrap:balance;margin:0}
+h1{font-size:clamp(28px,5vw,40px)}h2{font-size:26px;margin-top:56px;padding-top:18px;border-top:2px solid var(--line)}h3{font-size:19px;margin-top:28px}
+p,li{max-width:68ch}p{margin:10px 0}ul,ol{padding-left:22px;margin:8px 0}li{margin:4px 0}
+.eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600}
+.lead{font-size:18px;color:var(--muted);max-width:62ch}
+.capa{padding:40px 0 10px}.capa .meta{color:var(--muted);font-size:14px;margin-top:10px}
+nav.sumario{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line);margin:0 -16px;padding:10px 16px;display:flex;gap:6px 14px;flex-wrap:wrap;font-size:13px}
+nav.sumario a{color:var(--fg);text-decoration:none;font-weight:500;padding:3px 0;border-bottom:2px solid transparent}nav.sumario a:hover{border-color:var(--accent)}
+.resumo{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:18px}
+.resumo .it{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.resumo .it b{display:block;font-family:var(--display);font-size:17px;margin-bottom:4px}.resumo .it span{color:var(--muted);font-size:14px}
+.regra{border-left:4px solid var(--accent);background:var(--accent-soft);padding:12px 16px;border-radius:0 10px 10px 0;margin:16px 0;max-width:72ch}
+.regra b{font-family:var(--display)}
+.aviso{border-left:4px solid var(--amber);background:color-mix(in srgb,var(--amber) 12%,var(--card));padding:12px 16px;border-radius:0 10px 10px 0;margin:16px 0;max-width:72ch}
+table{border-collapse:collapse;width:100%;font-size:14.5px;margin:12px 0}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}th{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.tw{overflow-x:auto}
+.classe{display:inline-block;font-family:var(--mono);font-size:12px;font-weight:700;padding:2px 8px;border-radius:6px;border:1px solid}
+.classe.sql{color:var(--green);border-color:rgba(111,224,140,.5);background:rgba(111,224,140,.1)}
+.classe.mql{color:var(--blue);border-color:rgba(111,179,224,.5);background:rgba(111,179,224,.12)}
+.classe.fora{color:var(--red);border-color:rgba(224,111,111,.5);background:rgba(224,111,111,.1)}
+.classe.c{color:var(--grey);border-color:rgba(95,115,104,.5);background:rgba(95,115,104,.12)}
+/* conversa desenhada, igual ao Inbox */
+.tela{background:var(--p-ink);color:var(--p-cream);border:1px solid #2a3d34;border-radius:16px;padding:14px;margin:16px 0;font:13px/1.4 -apple-system,"Segoe UI",sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.18);overflow:hidden}
+.tela .leg{font-size:11px;color:var(--p-dim);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.tela .leg b{color:var(--p-gold);font-weight:600;letter-spacing:0;text-transform:none;font-size:12px}
+.tela .leg .classe{margin-left:auto;letter-spacing:0;text-transform:none}
+.bal{max-width:78%;padding:8px 11px;border-radius:12px;margin:5px 0;font-size:13px;line-height:1.4;white-space:pre-wrap}
+.bal.lead{background:var(--p-panel2);border:1px solid var(--p-line);border-bottom-left-radius:4px}
+.bal.anne{background:rgba(245,185,66,.12);border:1px solid rgba(245,185,66,.35);margin-left:auto;border-bottom-right-radius:4px}
+.bal small{display:block;color:var(--p-dim);font-size:10.5px;margin-bottom:2px}
+.bal mark{background:rgba(111,224,140,.25);color:var(--p-cream);border-radius:3px;padding:0 3px}
+.bal mark.neg{background:rgba(224,111,111,.3)}
+.pq{font-size:12px;color:var(--p-dim);margin-top:8px;border-top:1px dashed var(--p-line);padding-top:7px}
+.pq b{color:var(--p-cream)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.bloco{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}.bloco h3{margin-top:0;font-size:17px}.bloco li{font-size:14.5px}
+.faq details{border-bottom:1px solid var(--line);padding:8px 0}.faq summary{cursor:pointer;font-weight:600}.faq p{color:var(--muted);font-size:15px}
+.rodape{margin-top:50px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:14px}
+a{color:var(--accent)}
+@media (max-width:520px){.bal{max-width:92%}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="capa">
+  <div class="eyebrow">Anne Vendedora · time comercial · 29 de outubro de 2026</div>
+  <h1>Critérios MQL e SQL</h1>
+  <p class="lead">O que faz um lead ser MQL, o que faz ser SQL e quem não é nenhum dos dois. Com exemplos reais das conversas da Anne no TJ-AM.</p>
+  <div class="meta">Base: 537 matrículas da Elite TJ-AM desde julho e 1.297 conversas lidas e medidas. Os exemplos são conversas reais, só com o primeiro nome. As porcentagens são a taxa de matrícula de cada grupo.</div>
+</header>
+
+<nav class="sumario" aria-label="Sumário">
+  <a href="#resumo">Resumo</a><a href="#regra">A regra</a><a href="#fora">Quem fica fora</a><a href="#mql">MQL</a><a href="#sql">SQL</a><a href="#erros">Erros comuns</a><a href="#muda">Mudança de classe</a><a href="#acao">O que fazer</a><a href="#faq">Dúvidas</a>
+</nav>
+
+<section id="resumo">
+  <h2>Resumo em um minuto</h2>
+  <div class="resumo">
+    <div class="it"><b>MQL</b><span>Pessoa real, do TJ-AM, que contou pelo menos duas coisas sobre a própria preparação. Ainda não falou em dinheiro. Converte 7% a 12%.</span></div>
+    <div class="it"><b>SQL</b><span>Lead que já está resolvendo <u>como</u> pagar: perguntou forma, disse que não tem cartão, prometeu data, pediu desconto, pediu humano ou pediu o link. Converte 23% a 31%.</span></div>
+    <div class="it"><b>Fora</b><span>Secretária eletrônica, concurso errado ou objeção de valor ("não tenho condições"). Converte 0% a 2%. Não entra em classe nenhuma.</span></div>
+    <div class="it"><b>A pergunta que decide</b><span>"Prefere no cartão ou no boleto e Pix parcelado?" É a resposta a ela que transforma MQL em SQL.</span></div>
+  </div>
+</section>
+
+<section id="regra">
+  <h2>A regra de bolso</h2>
+  <p>No TJ-AM, o que separa as classes <b>não é quem o lead é</b>. É o que ele já disse sobre <b>pagar</b>.</p>
+  <ul>
+    <li><span class="classe mql">MQL</span> é uma pessoa real, do concurso certo, que se abriu sobre a própria preparação. Ela ainda não falou em dinheiro.</li>
+    <li><span class="classe sql">SQL</span> é o lead que já está resolvendo <b>como</b> pagar, mesmo que ainda não tenha conseguido.</li>
+  </ul>
+  <div class="regra"><b>Perfil não vende. Momento de pagamento vende.</b> Quem conta que começa do zero, que trabalha ou que tem 2 horas por dia converte igual à média. Quem pergunta "aceita boleto?" converte três vezes mais.</div>
+  <div class="tw"><table>
+    <tr><th>Grupo</th><th>Taxa de matrícula</th><th>Parte das vendas</th></tr>
+    <tr><td><span class="classe sql">SQL</span> sinal de compra</td><td>23% (conversa inteira) · 31% (antes do link)</td><td>7 em cada 10</td></tr>
+    <tr><td><span class="classe mql">MQL</span> perfil e interesse</td><td>7% a 12%</td><td>1 em cada 10</td></tr>
+    <tr><td><span class="classe c">C</span> conversa rasa</td><td>5%</td><td>2 em cada 10</td></tr>
+    <tr><td><span class="classe fora">Fora</span> valor, presencial, outra mentoria</td><td>0% a 2%</td><td>quase nada</td></tr>
+    <tr><td><span class="classe fora">Fora</span> secretária eletrônica</td><td>0%</td><td>nada</td></tr>
+  </table></div>
+</section>
+
+<section id="fora">
+  <h2>Antes de tudo: quem não é nem MQL</h2>
+  <p>Três portas de saída. Se o lead cai numa delas, não entra em classe nenhuma, por mais que tenha respondido.</p>
+
+  <h3>1. Secretária eletrônica</h3>
+  <p>"Agradecemos seu contato, como podemos ajudar", "não estamos disponíveis no momento", "Dra. Fulana agradece seu contato". Não é ninguém respondendo. Uma advocacia tem 63 "mensagens" na Anne, todas automáticas, e recebeu link, follow-up e cupom.</p>
+  <div class="tela">
+    <div class="leg"><b>Exemplo real</b> <span class="classe fora">FORA</span></div>
+    <div class="bal anne"><small>Anne</small>Você se cadastrou na nossa base do TJ-AM e liberamos aulas gratuitas. Quer receber o acesso?</div>
+    <div class="bal lead"><small>Lead</small><mark class="neg">Olá! Sou a Secretária Virtual da Dra. Adriana.</mark> Horário para agendamento: segunda a sexta, das 8h às 18h.</div>
+    <div class="bal anne"><small>Anne</small>Dica rápida pro TJ-AM: comece pelo trio Português, Administrativo e Constitucional…</div>
+    <div class="bal lead"><small>Lead</small><mark class="neg">Agradecemos sua mensagem. Não estamos disponíveis no momento.</mark></div>
+    <div class="pq"><b>Regra:</b> duas mensagens iguais de boas-vindas ou de "indisponível" e acabou. Não conta como resposta, não entra em cadência, não recebe cupom.</div>
+  </div>
+
+  <h3>2. Concurso errado</h3>
+  <p>Clicou "Quero saber como me preparar para a PRF" num disparo do TJ-AM e seguiu falando de PRF ou de Polícia. Converte 4%. Só vira lead do TJ-AM se disser "na verdade quero o TJ".</p>
+
+  <h3>3. Objeção de valor</h3>
+  <p>"Não tenho condições", "muito caro", "não tenho como pagar o curso", "falta grana mesmo". Zero matrícula em 31 casos. Esse lead fica em baixa pressão: sem cupom semanal, sem insistência. Só volta em gatilho de abertura.</p>
+  <div class="tela">
+    <div class="leg"><b>Exemplo real · Carla</b> <span class="classe fora">FORA</span></div>
+    <div class="bal anne"><small>Anne</small>As matrículas da Mentoria Elite TJ-AM estão abertas, com 2 anos de acesso. Quer as condições?</div>
+    <div class="bal lead"><small>Lead</small>Não tenho interesse</div>
+    <div class="bal anne"><small>Anne</small>Tudo bem, Carla! Deixo a porta aberta por aqui.</div>
+    <div class="bal lead"><small>Lead</small>Obrigada, <mark class="neg">não tenho como pagar o curso</mark>. Desculpa</div>
+    <div class="pq"><b>Por quê:</b> a objeção é o valor em si, não a forma. Oferecer boleto aqui não resolve. Outros iguais: Isaque ("achei o valor muito alto"), Pierre ("falta grana, cuido de minha mãe idosa"), Gracilene ("não tenho condições para esses valores").</div>
+  </div>
+  <div class="aviso"><b>A diferença que a equipe mais erra:</b> "não tenho como pagar" é valor, sai. "Não tenho cartão" é forma, entra como SQL. A palavra <i>dinheiro</i> derruba. A palavra <i>boleto</i> sobe.</div>
+</section>
+
+<section id="mql">
+  <h2>O que faz um lead ser MQL</h2>
+  <p>Precisa de <b>todos</b> estes, ao mesmo tempo:</p>
+  <ol>
+    <li>É uma pessoa real respondendo com texto próprio. Não só botão em maiúsculas, "sim" e "ok".</li>
+    <li>O concurso é o TJ-AM.</li>
+    <li>Contou pelo menos <b>dois</b> itens sobre a própria preparação: cargo (Técnico ou Analista), situação (do zero ou já estuda), rotina ou horas por dia, se trabalha, ou perguntou como a mentoria funciona ou quanto custa.</li>
+    <li>Nenhuma das três portas de saída.</li>
+  </ol>
+
+  <h3>É MQL</h3>
+  <div class="grid2">
+    <div class="tela">
+      <div class="leg"><b>Klinger</b> <span class="classe mql">MQL</span></div>
+      <div class="bal anne"><small>Anne</small>O que mais te trava: saber por onde começar ou encaixar os estudos na rotina?</div>
+      <div class="bal lead"><small>Lead</small>Por onde começar</div>
+      <div class="bal anne"><small>Anne</small>Você mira Técnico ou Analista?</div>
+      <div class="bal lead"><small>Lead</small><mark>Técnico</mark></div>
+      <div class="bal lead"><small>Lead</small><mark>Dificuldade de manter a constância</mark></div>
+      <div class="bal lead"><small>Lead</small>Quais assuntos de português, Adm e Const é mais provável cair no TJ-AM?</div>
+      <div class="pq"><b>Por quê:</b> cargo, dificuldade e pergunta de conteúdo. Perfil completo. Nunca falou em pagamento.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Kleuciane</b> <span class="classe mql">MQL</span></div>
+      <div class="bal lead"><small>Lead</small><mark>Quero para pedagogo TJ-AM</mark></div>
+      <div class="bal lead"><small>Lead</small><mark>A lei que eu sei é LDB e ECA</mark></div>
+      <div class="bal lead"><small>Lead</small>É Cebraspe né?</div>
+      <div class="bal lead"><small>Lead</small>São 5 aulas, é isso?</div>
+      <div class="pq"><b>Por quê:</b> cargo e situação ditos com as próprias palavras, engajada, zero sinal de compra.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Iliane</b> <span class="classe mql">MQL</span> com dúvida</div>
+      <div class="bal lead"><small>Lead</small><mark>Já tô estudando há um tempo mas sinto que não é o suficiente</mark> e que preciso de um direcionamento</div>
+      <div class="bal lead"><small>Lead</small>Mas tenho uma dívida, esse valor é somente para a mentoria?</div>
+      <div class="bal lead"><small>Lead</small>Não tem aulas presenciais?</div>
+      <div class="pq"><b>Por quê:</b> situação e perguntas sobre o produto. Perguntar o valor não é sinal de compra. Continua MQL até dizer como pagaria.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Dayane</b> <span class="classe mql">MQL</span></div>
+      <div class="bal lead"><small>Lead</small>Por onde começar</div>
+      <div class="bal lead"><small>Lead</small><mark>Técnico</mark></div>
+      <div class="bal anne"><small>Anne</small>Pesa mais a falta de um passo a passo semanal ou o pouco tempo?</div>
+      <div class="bal lead"><small>Lead</small><mark>Um passo a passo</mark></div>
+      <div class="bal lead"><small>Lead</small>Sim</div>
+      <div class="pq"><b>Por quê:</b> cargo e dificuldade. Topou o cronograma e sumiu. É o MQL típico: vale a pergunta de pagamento, não vale ligação.</div>
+    </div>
+  </div>
+
+  <h3>Parece MQL e não é</h3>
+  <div class="grid2">
+    <div class="tela">
+      <div class="leg"><b>Any</b> <span class="classe c">C · rasa</span></div>
+      <div class="bal lead"><small>Lead</small>QUERO ASSISTIR ÀS AULAS</div>
+      <div class="bal anne"><small>Anne</small>Conseguiu entrar no grupo?</div>
+      <div class="bal lead"><small>Lead</small>sim</div>
+      <div class="bal lead"><small>Lead</small>Sim</div>
+      <div class="pq"><b>Por quê:</b> só botão e monossílabo. Não disse nada sobre si. Conversa rasa, não MQL.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Rafaella</b> <span class="classe fora">FORA · concurso errado</span></div>
+      <div class="bal lead"><small>Lead</small><mark class="neg">Quero saber como me preparar para a PRF</mark></div>
+      <div class="bal lead"><small>Lead</small>Agora (começando do zero)</div>
+      <div class="bal lead"><small>Lead</small>Sim (trabalho)</div>
+      <div class="bal lead"><small>Lead</small>Taf</div>
+      <div class="pq"><b>Por quê:</b> contou tudo, mas sobre a PRF. Não é lead do TJ-AM.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Pierre</b> <span class="classe fora">FORA · valor</span></div>
+      <div class="bal lead"><small>Lead</small><mark class="neg">Falta grana mesmo pois estou sem emprego e cuido de minha mãe idosa</mark>, mas gostaria de saber se vão ter apostila</div>
+      <div class="bal lead"><small>Lead</small>Técnico</div>
+      <div class="bal lead"><small>Lead</small>Dá pra ter disponível 2 ou 3 horas no dia</div>
+      <div class="bal lead"><small>Lead</small>Falta de direcionamento</div>
+      <div class="pq"><b>Por quê:</b> seria MQL perfeito. Mas abriu com objeção de valor, e valor derruba. Baixa pressão.</div>
+    </div>
+  </div>
+  <p>O que <b>não</b> conta para MQL, porque não muda a conversão: pedir o material ou o vade mecum, perguntar se é presencial, dizer que começa do zero ou que já estuda. Tudo isso converte igual à média.</p>
+</section>
+
+<section id="sql">
+  <h2>O que faz um lead ser SQL</h2>
+  <p>Basta <b>um</b> destes seis sinais, dito pelo próprio lead:</p>
+  <div class="tw"><table>
+    <tr><th>Sinal</th><th>Como aparece</th><th>Taxa de matrícula</th></tr>
+    <tr><td><b>1. Perguntou ou discutiu a forma de pagamento</b></td><td>"Aceitam boleto?", "tem Pix parcelado?", "é recorrente no cartão?", "quanto é a entrada?"</td><td>34%</td></tr>
+    <tr><td><b>2. Disse que não tem cartão ou limite</b></td><td>"Não tenho cartão", "não tenho esse limite", "meu cartão está cheio", "esperando o cartão virar"</td><td>33%</td></tr>
+    <tr><td><b>3. Prometeu uma data</b></td><td>"Dia 10 meu cartão libera", "fim do mês", "quando receber", "só recebo dia 20"</td><td>27%</td></tr>
+    <tr><td><b>4. Pediu desconto ou cupom</b></td><td>"Tem cupom?", "um valor mais acessível", "bolsa para minha irmã"</td><td>46%</td></tr>
+    <tr><td><b>5. Pediu para falar com uma pessoa</b></td><td>"Quero falar com atendente", "alguém que não seja a IA"</td><td>31%</td></tr>
+    <tr><td><b>6. Disse que quer entrar ou pediu o link</b></td><td>"Quero o link de matrícula", "fecho agora", "quero minha vaga"</td><td>38%</td></tr>
+  </table></div>
+
+  <h3>É SQL</h3>
+  <div class="grid2">
+    <div class="tela">
+      <div class="leg"><b>Vanessa</b> <span class="classe sql">SQL</span> sem cartão</div>
+      <div class="bal anne"><small>Anne</small>…a Mentoria Elite TJ-AM foi feita pra te levar do básico ao avançado. Olha o que você recebe:</div>
+      <div class="bal lead"><small>Lead</small>Pode me enviar, <mark>não tenho cartão</mark></div>
+      <div class="bal lead"><small>Lead</small>Ainda não porque <mark>não estou com o valor na mão</mark></div>
+      <div class="bal lead"><small>Lead</small><mark>Vou te chamar dia 31</mark></div>
+      <div class="pq"><b>Por quê:</b> três sinais: forma, sem cartão, data. Comprou no dia 31.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Samya</b> <span class="classe sql">SQL</span> data e cupom</div>
+      <div class="bal lead"><small>Lead</small>Quero oportunidade de me inscrever com essa promoção <mark>dia 10 de setembro, pois não tenho limite no meu cartão hoje</mark></div>
+      <div class="bal lead"><small>Lead</small>Queria pagar pra mim e minha irmã, <mark>consegue me dar uma bolsa de 50% na segunda?</mark></div>
+      <div class="pq"><b>Por quê:</b> data, limite e pedido de desconto. Quem pede desconto já decidiu, está negociando. Comprou no dia 12.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Nata</b> <span class="classe sql">SQL</span> forma de pagamento</div>
+      <div class="bal lead"><small>Lead</small>Qual o valor pra mentoria?</div>
+      <div class="bal lead"><small>Lead</small><mark>No caso vocês aceitam boleto?</mark></div>
+      <div class="bal lead"><small>Lead</small>Sim, mas não aparece boleto.</div>
+      <div class="bal lead"><small>Lead</small><mark>Quando aparecer o boleto você pode avisar?</mark></div>
+      <div class="pq"><b>Por quê:</b> "qual o valor" sozinho não seria SQL. "Aceitam boleto?" é. Comprou no mesmo dia.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Michele</b> <span class="classe sql">SQL</span> pediu humano</div>
+      <div class="bal lead"><small>Lead</small>Como eu sei que você faz parte mesmo da equipe Sou Concurseiro?</div>
+      <div class="bal lead"><small>Lead</small><mark>Gostaria que alguém que não fosse a IA falasse comigo</mark></div>
+      <div class="bal lead"><small>Lead</small>Por gentileza</div>
+      <div class="pq"><b>Por quê:</b> desconfiança é objeção de quem quer comprar. Pedir humano é sinal de compra. A Kamila chamou, comprou no dia seguinte.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Josimar</b> <span class="classe sql">SQL</span> que ainda não comprou</div>
+      <div class="bal lead"><small>Lead</small>Vou comprar um notebook pra eu estudar ainda. E meter bronca</div>
+      <div class="bal lead"><small>Lead</small><mark>Pro final do mês vou ter esse dinheiro</mark></div>
+      <div class="bal lead"><small>Lead</small><mark>Tem a função boleto?</mark></div>
+      <div class="bal lead"><small>Lead</small>Esperando receber pra eu poder comprar ok</div>
+      <div class="pq"><b>Por quê:</b> data e forma. É SQL mesmo sem ter comprado: tinha que ser agendado para o dia que recebe, não receber cupom toda semana.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Jessika</b> <span class="classe sql">SQL</span> quer entrar</div>
+      <div class="bal lead"><small>Lead</small>Eu quero muito fazer, MAS tô com dúvida quanto ao material de estudo</div>
+      <div class="bal lead"><small>Lead</small><mark>Anne, existe a opção de pix parcelado?</mark> Me ajuda por favor</div>
+      <div class="bal lead"><small>Lead</small><mark>Fecho agora se for possível</mark></div>
+      <div class="pq"><b>Por quê:</b> forma de pagamento e intenção explícita. Comprou 20 minutos depois.</div>
+    </div>
+  </div>
+</section>
+
+<section id="erros">
+  <h2>Erros comuns na hora de classificar</h2>
+  <div class="tw"><table>
+    <tr><th>O lead disse</th><th>Parece</th><th>É</th><th>Por quê</th></tr>
+    <tr><td>"Não tenho como pagar"</td><td>SQL com objeção</td><td><span class="classe fora">FORA</span></td><td>Objeção de valor. 0 em 31.</td></tr>
+    <tr><td>"Não tenho cartão"</td><td>Objeção, desiste</td><td><span class="classe sql">SQL</span></td><td>Objeção de forma. Quer pagar, falta o meio. 33%.</td></tr>
+    <tr><td>"Quanto custa?"</td><td>SQL</td><td><span class="classe mql">MQL</span></td><td>Perguntar valor converte 17%, perto da média. Perguntar "como pago" é SQL.</td></tr>
+    <tr><td>Botão "QUERO AS CONDIÇÕES" e nada mais</td><td>SQL</td><td><span class="classe c">C</span></td><td>Botão é porta aberta. Vira SQL quando escreve algo com as próprias palavras sobre pagar ou entrar.</td></tr>
+    <tr><td>"Quero meu material / vade mecum"</td><td>Interesse</td><td>nada</td><td>Pedir material converte igual à média. Não sobe nem desce.</td></tr>
+    <tr><td>"É presencial?"</td><td>Interesse</td><td>nada, ou FORA se insistir</td><td>Quem só quer presencial: 0 em 14.</td></tr>
+    <tr><td>"Vou pensar e te retorno"</td><td>Data</td><td><span class="classe mql">MQL</span></td><td>Data é dia, semana ou evento ("quando receber"). "Vou pensar" não é data.</td></tr>
+    <tr><td>"Como podemos ajudar?"</td><td>Lead respondeu</td><td><span class="classe fora">FORA</span></td><td>Secretária eletrônica. Zero.</td></tr>
+  </table></div>
+</section>
+
+<section id="muda">
+  <h2>Como o lead muda de classe</h2>
+  <ul>
+    <li><b>MQL vira SQL</b> no momento em que responde "prefere no cartão ou no boleto e Pix parcelado?". Por isso a pergunta tem que ser feita cedo. É ela que revela a classe.</li>
+    <li><b>Valor vira SQL</b> se o lead voltar com data ou forma: "no dia 5 recebo", "se der no boleto eu faço". Álvaro disse "cartão cheio, recursos comprometidos" e comprou 24 dias depois, na abertura seguinte.</li>
+    <li><b>SQL não volta a ser MQL.</b> Ele esfria, mas o sinal continua valendo. Um SQL de julho com data vencida ainda é SQL para a próxima abertura.</li>
+    <li><b>Ninguém sai de FORA por insistência.</b> Sai quando ele mesmo muda o que diz.</li>
+  </ul>
+</section>
+
+<section id="acao">
+  <h2>O que cada classe significa na prática</h2>
+  <div class="tw"><table>
+    <tr><th>Classe</th><th>A Anne</th><th>O Comercial humano</th></tr>
+    <tr><td><span class="classe fora">FORA</span> secretária, PRF, valor</td><td>Sai da cadência e do cupom. Só gatilho de abertura.</td><td>Nunca.</td></tr>
+    <tr><td><span class="classe c">C</span> conversa rasa</td><td>Nutre e faz a pergunta de pagamento.</td><td>Não.</td></tr>
+    <tr><td><span class="classe mql">MQL</span></td><td>Nutre, faz a pergunta de pagamento e manda o link junto.</td><td>Não.</td></tr>
+    <tr><td><span class="classe sql">SQL</span></td><td>Responde na hora, agenda a data prometida, resolve a forma.</td><td>Só se o checkout não tem a forma que o lead precisa, se pediu humano ou se a data prometida venceu sem compra.</td></tr>
+  </table></div>
+  <div class="regra"><b>Para a equipe:</b> o Comercial é a segunda camada. Entra no SQL travado, não no MQL. O que vende é a Anne resolvendo pagamento e data no momento certo. Metade das matrículas que passaram por humano foram para destravar boleto, Pix parcelado ou link de 2 anos.</div>
+</section>
+
+<section id="faq" class="faq">
+  <h2>Dúvidas frequentes</h2>
+  <details><summary>O lead contou tudo da vida e nunca falou em dinheiro. É SQL?</summary><p>Não. É MQL. Perfil não é sinal de compra. Faça a pergunta de pagamento: a resposta diz a classe.</p></details>
+  <details><summary>O lead disse "não tenho cartão" e sumiu. Ainda é SQL?</summary><p>Sim. Objeção de forma é sinal de compra. Ele precisa de boleto ou Pix parcelado e de alguém que confirme que existe. É o caso clássico para o humano.</p></details>
+  <details><summary>O lead prometeu "dia 10" e o dia 10 passou. E agora?</summary><p>Continua SQL. Chama no dia combinado, uma vez, com a mesma condição prometida. Não manda cupom diferente antes da data.</p></details>
+  <details><summary>Lead que disse "muito caro" e depois pediu boleto?</summary><p>Virou SQL. O que vale é a última coisa que ele disse sobre pagar.</p></details>
+  <details><summary>Lead que já é aluno de outra mentoria?</summary><p>Não entra nesta régua. É venda cruzada: 34% compram, mas o caminho é outro, pelo CS e pela abertura.</p></details>
+  <details><summary>Por que o selo do Jev no card (A, B, C) é diferente disso?</summary><p>O selo atual mede temperatura geral. Esta régua mede sinal de pagamento. As duas vão ser unificadas: MQL e SQL vão substituir A e B no card.</p></details>
+</section>
+
+<footer class="rodape">
+  Documento de treinamento da equipe · base nas conversas da Anne Vendedora e nas matrículas da Elite TJ-AM de 14/07 a 29/10/2026 · as demais mentorias serão calibradas com a mesma régua.
+</footer>
+
+</div>
+</body>
+</html>
