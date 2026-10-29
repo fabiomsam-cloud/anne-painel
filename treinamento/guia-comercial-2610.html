@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Guia do Comercial na Anne</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Bricolage+Grotesque:wght@600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* layout: coluna de leitura (~68ch) com exemplos desenhados em "telas" escuras iguais ao painel; sumário fixo no topo */
+:root{--bg:#f6f4ee;--fg:#1c2420;--muted:#5d6a63;--line:#dcd8cc;--card:#fffdf8;--accent:#0f6e5c;--accent-soft:#e3f0ea;
+ --display:"Bricolage Grotesque",Georgia,serif;--body:Figtree,-apple-system,"Segoe UI",sans-serif;--mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+ /* paleta FIXA das telas (igual ao painel da Anne, não muda com o tema) */
+ --p-ink:#0b1512;--p-panel:#101d19;--p-panel2:#16261f;--p-line:#1f332a;--p-gold:#f5b942;--p-teal:#35d0ba;--p-cream:#e8efe9;--p-dim:#8aa396;
+ --red:#e06f6f;--amber:#ef9a3c;--green:#6fe08c;--grey:#5f7368;--purple:#b89cff;--blue:#6fb3e0}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121816;--fg:#e8efe9;--muted:#9db0a6;--line:#263730;--card:#18221e;--accent:#4fd1b3;--accent-soft:#17302a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#121816;--fg:#e8efe9;--muted:#9db0a6;--line:#263730;--card:#18221e;--accent:#4fd1b3;--accent-soft:#17302a;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 var(--body);padding-block:0 60px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:860px;margin:0 auto}
+h1,h2,h3{font-family:var(--display);line-height:1.15;text-wrap:balance;margin:0}
+h1{font-size:clamp(28px,5vw,40px)}h2{font-size:26px;margin-top:56px;padding-top:18px;border-top:2px solid var(--line)}h3{font-size:19px;margin-top:28px}
+p,li{max-width:68ch}p{margin:10px 0}ul,ol{padding-left:22px;margin:8px 0}li{margin:4px 0}
+.eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600}
+.lead{font-size:18px;color:var(--muted);max-width:62ch}
+.capa{padding:40px 0 10px}.capa .meta{color:var(--muted);font-size:14px;margin-top:10px}
+nav.sumario{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line);margin:0 -16px;padding:10px 16px;display:flex;gap:6px 14px;flex-wrap:wrap;font-size:13px}
+nav.sumario a{color:var(--fg);text-decoration:none;font-weight:500;padding:3px 0;border-bottom:2px solid transparent}nav.sumario a:hover{border-color:var(--accent)}
+.resumo{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:18px}
+.resumo .it{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.resumo .it b{display:block;font-family:var(--display);font-size:17px;margin-bottom:4px}.resumo .it span{color:var(--muted);font-size:14px}
+.n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:700;margin-right:6px;vertical-align:2px}
+.regra{border-left:4px solid var(--accent);background:var(--accent-soft);padding:12px 16px;border-radius:0 10px 10px 0;margin:16px 0;max-width:72ch}
+.regra b{font-family:var(--display)}
+.aviso{border-left:4px solid var(--amber);background:color-mix(in srgb,var(--amber) 12%,var(--card));padding:12px 16px;border-radius:0 10px 10px 0;margin:16px 0;max-width:72ch}
+table{border-collapse:collapse;width:100%;font-size:14.5px;margin:12px 0}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}th{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.tw{overflow-x:auto}
+.dot{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;margin-right:6px}
+kbd{font-family:var(--mono);font-size:12.5px;background:var(--card);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+.passo{display:grid;grid-template-columns:36px 1fr;gap:10px;margin:10px 0;max-width:72ch}.passo .num{font-family:var(--display);font-size:22px;color:var(--accent);line-height:1}
+/* telas desenhadas */
+.tela{background:var(--p-ink);color:var(--p-cream);border:1px solid #2a3d34;border-radius:16px;padding:14px;margin:16px 0;font:13px/1.4 -apple-system,"Segoe UI",sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.18);overflow:hidden}
+.tela .leg{font-size:11px;color:var(--p-dim);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px}
+.tela .leg b{color:var(--p-gold);font-weight:600;letter-spacing:0;text-transform:none;font-size:12px}
+.card{position:relative;background:var(--p-panel2);border:1px solid var(--p-line);border-radius:14px;padding:12px 12px 10px 18px;margin:10px 0;overflow:hidden}
+.card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--c)}
+.card.red{--c:var(--red)}.card.amber{--c:var(--amber)}.card.green{--c:var(--green)}.card.grey{--c:var(--grey);opacity:.78}
+.top{display:flex;align-items:center;gap:8px}.nome{font-size:16px;font-weight:600;flex:1}
+.jev{font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px}
+.jev.A{background:rgba(184,156,255,.18);color:var(--purple);border:1px solid rgba(184,156,255,.5)}.jev.B{background:rgba(111,179,224,.14);color:var(--blue);border:1px solid rgba(111,179,224,.45)}.jev.C{background:rgba(95,115,104,.14);color:var(--p-dim);border:1px solid rgba(95,115,104,.45)}
+.posse{font-size:12px;color:var(--p-dim);font-family:var(--mono)}.posse.alerta{color:var(--red);font-weight:600}
+.estado{margin:8px 0 5px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px}.estado .d{width:9px;height:9px;border-radius:50%;background:var(--c);box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 22%,transparent)}
+.red .estado{color:var(--red)}.amber .estado{color:var(--amber)}.green .estado{color:var(--green)}.grey .estado{color:var(--p-dim)}
+.meta2{color:var(--p-dim);font-size:12px;line-height:1.7}.meta2 code{font-family:var(--mono);font-size:11px;background:rgba(255,255,255,.04);border:1px solid var(--p-line);border-radius:5px;padding:1px 6px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.chip{font-size:11px;color:var(--p-dim);border:1px solid var(--p-line);border-radius:7px;padding:3px 8px}
+.btns{display:flex;gap:8px;margin-top:9px}.btn{flex:1;text-align:center;font-size:12.5px;font-weight:600;padding:7px 10px;border-radius:9px;border:1px solid}
+.btn.g{color:var(--p-gold);border-color:rgba(245,185,66,.5);background:rgba(245,185,66,.1)}.btn.t{color:var(--p-teal);border-color:rgba(53,208,186,.5);background:rgba(53,208,186,.08)}
+.av{margin-top:8px;font-size:12px;color:var(--red);background:rgba(224,111,111,.08);border:1px dashed rgba(224,111,111,.4);border-radius:8px;padding:5px 9px}
+.colh{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:2px 4px 8px}.colh h4{font-size:14px;margin:0}.colh small{color:var(--p-dim)}
+.cont{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}.cont span{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid}
+.c-red{color:var(--red);border-color:rgba(224,111,111,.5);background:rgba(224,111,111,.1)}.c-amber{color:var(--amber);border-color:rgba(239,154,60,.5);background:rgba(239,154,60,.1)}.c-green{color:var(--green);border-color:rgba(111,224,140,.45);background:rgba(111,224,140,.08)}.c-grey{color:var(--grey);border-color:rgba(95,115,104,.5);background:rgba(95,115,104,.1)}
+.anot{position:absolute;right:8px;background:var(--p-gold);color:#1a1200;font-weight:700;font-size:11px;width:18px;height:18px;border-radius:50%;display:grid;place-items:center}
+.lista .row{position:relative;display:grid;grid-template-columns:1fr auto;gap:3px 10px;padding:10px 10px 10px 18px;border-bottom:1px solid var(--p-line);overflow:hidden}
+.row::before{content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--c)}
+.row.red{--c:var(--red)}.row.amber{--c:var(--amber)}.row.green{--c:var(--green)}.row.grey{--c:var(--grey)}.row.grey>*{opacity:.6}.row.meu{background:rgba(245,185,66,.04)}
+.rn{font-size:14px;font-weight:600}.rt{font-size:11.5px;font-family:var(--mono);align-self:center}
+.red .rt{color:var(--red);font-weight:700}.amber .rt{color:var(--amber)}.green .rt{color:var(--green)}.grey .rt{color:var(--grey)}
+.rc{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;align-items:center}.tag{font-size:11px;border:1px solid var(--p-line);border-radius:7px;padding:2px 8px;color:var(--p-dim)}
+.tag.eu{color:var(--p-gold);border-color:rgba(245,185,66,.5);background:rgba(245,185,66,.1);font-weight:600}.tag.semdono{color:var(--amber);border-color:rgba(239,154,60,.5);background:rgba(239,154,60,.1);font-weight:600}
+.st{font-size:11.5px;font-weight:600;margin-left:auto;display:flex;align-items:center;gap:6px}.st .b{width:9px;height:9px;border-radius:50%;background:var(--c)}
+.red .st{color:var(--red)}.amber .st{color:var(--amber)}.green .st{color:var(--green)}.grey .st{color:var(--p-dim)}
+.fila .it{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:9px 10px;border:1px solid var(--p-line);border-radius:10px;margin:6px 0;background:var(--p-panel2);font-size:12px}
+.fila .it .p{font-family:var(--mono);border:1px solid var(--p-line);border-radius:5px;padding:1px 5px;color:var(--p-dim);font-size:11px}
+.fila .it .gat{color:var(--p-gold);font-weight:600}.fila .it .dm{color:var(--p-dim)}.fila .it .ass{margin-left:auto;color:var(--p-gold);border:1px solid rgba(245,185,66,.5);background:rgba(245,185,66,.1);border-radius:8px;padding:5px 10px;font-weight:600}
+.modal{background:var(--p-panel);border:1px solid var(--p-line);border-radius:14px;padding:14px;max-width:420px}.modal h4{margin:0 0 10px;font-size:15px}
+.modal .inp{background:var(--p-ink);border:1px solid var(--p-line);border-radius:8px;padding:8px 10px;color:var(--p-cream);margin:6px 0;font-size:13px}.modal .inp.ph{color:var(--p-dim)}
+.modal .ok{display:inline-block;margin-top:8px;background:var(--p-gold);color:#1a1200;font-weight:700;border-radius:8px;padding:7px 14px;font-size:13px}
+.barra{display:flex;gap:6px;flex-wrap:wrap;align-items:center;background:var(--p-panel);border:1px solid rgba(245,185,66,.3);border-radius:10px;padding:8px 10px;font-size:12px}
+.barra .b2{border:1px solid var(--p-line);border-radius:7px;padding:4px 8px;color:var(--p-cream)}.barra .b2.g{color:var(--p-gold);border-color:rgba(245,185,66,.6);background:rgba(245,185,66,.1);font-weight:600}
+.rotina{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:14px}
+.rotina .bloco{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}.rotina h3{margin-top:0;font-size:17px}
+.rotina ul{padding-left:18px}.rotina li{font-size:14.5px}
+.faq details{border-bottom:1px solid var(--line);padding:8px 0}.faq summary{cursor:pointer;font-weight:600}.faq p{color:var(--muted);font-size:15px}
+.rodape{margin-top:50px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:14px}
+@media (max-width:520px){.btns{flex-direction:column}.passo{grid-template-columns:28px 1fr}}
+@media (prefers-reduced-motion:no-preference){.card.red::before{animation:pulsa 1.6s ease-in-out infinite}@keyframes pulsa{50%{opacity:.45}}}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<header class="capa">
+  <div class="eyebrow">Anne Vendedora · time comercial · 26 de outubro de 2026</div>
+  <h1>Guia do Comercial na Anne</h1>
+  <p class="lead">O que mudou no painel, o que cada cor quer dizer, como pegar e trabalhar um lead e a rotina diária que a equipe precisa seguir.</p>
+  <div class="meta">Vale para as abas <b>☎️ Comercial</b> e <b>💬 Inbox</b> do painel da Anne. Os exemplos abaixo são desenhos iguais às telas; os nomes e números são fictícios.</div>
+</header>
+
+<nav class="sumario" aria-label="Sumário">
+  <a href="#resumo">Resumo</a><a href="#semaforo">Semáforo</a><a href="#comercial">Aba Comercial</a><a href="#proxima">Próxima ação</a><a href="#fila">Fila a atribuir</a><a href="#inbox">Inbox</a><a href="#limpeza">Limpeza de 26/10</a><a href="#rotina">Rotina diária</a><a href="#faq">Dúvidas</a>
+</nav>
+
+<section id="resumo">
+  <h2>Resumo em um minuto</h2>
+  <div class="resumo">
+    <div class="it"><b>1. Cores nos cards</b><span>Cada card e cada linha do Inbox ganhou uma faixa colorida. Ela responde uma pergunta só: de quem é a bola e há quanto tempo.</span></div>
+    <div class="it"><b>2. Fim da roleta</b><span>Lead não cai mais no seu colo por sorteio semanal. Existe uma fila "a atribuir" e você assume até 5 leads novos por dia.</span></div>
+    <div class="it"><b>3. Próxima ação obrigatória</b><span>Todo lead em posse precisa ter "o que vou fazer e quando". Sem isso o card fica âmbar e aparece como pendente.</span></div>
+    <div class="it"><b>4. Posse de 14 dias</b><span>Lead sem atividade por 14 dias volta para a Anne automaticamente. O card avisa 3 dias antes.</span></div>
+    <div class="it"><b>5. Limpeza feita</b><span>Em 26/10, leads parados há mais de 14 dias sem trabalho voltaram para a Anne. Se algum sumiu do seu Inbox, foi isso.</span></div>
+    <div class="it"><b>6. Em breve: Inbox só seu</b><span>Quando for ligado, você verá no Inbox apenas os leads que são seus e a fila para assumir. Será avisado antes.</span></div>
+  </div>
+</section>
+
+<section id="semaforo">
+  <h2>O semáforo: o que cada cor quer dizer</h2>
+  <p>A faixa na borda esquerda do card e a bolinha ao lado do estado usam quatro cores. A pergunta que a cor responde é sempre a mesma: <b>de quem é a bola agora e há quanto tempo está parada</b>. Mentoria, funil e origem ficam em cinza de propósito, para não disputar atenção.</p>
+  <div class="tw"><table>
+    <tr><th>Cor</th><th>Significa</th><th>O que você faz</th></tr>
+    <tr><td><span class="dot" style="background:var(--red)"></span><b>Vermelho</b></td><td>O lead respondeu e está esperando você. É dinheiro na mesa. Depois de 2 horas a faixa começa a pulsar.</td><td>Responder antes de qualquer outra coisa. Vermelho sempre vem primeiro.</td></tr>
+    <tr><td><span class="dot" style="background:var(--amber)"></span><b>Âmbar</b></td><td>A bola está com você, mas não há resposta pendente: o card está sem próxima ação, ou a próxima ação venceu. No Inbox também marca conversa sem dono.</td><td>Marcar a próxima ação com data e hora, ou assumir a conversa sem dono.</td></tr>
+    <tr><td><span class="dot" style="background:var(--green)"></span><b>Verde</b></td><td>Próxima ação marcada para o futuro, ou você falou por último e está esperando o lead. Card em dia.</td><td>Nada agora. Cumprir a ação na hora marcada.</td></tr>
+    <tr><td><span class="dot" style="background:var(--grey)"></span><b>Cinza</b></td><td>Lead frio: não atendeu 3 vezes ou está sem resposta há 7 dias. O card fica mais apagado.</td><td>Decidir: última tentativa ou devolver para a Anne com o motivo.</td></tr>
+  </table></div>
+  <div class="regra"><b>Ordem de ataque:</b> vermelho, depois âmbar, depois cinza. Os verdes se cuidam sozinhos até a hora marcada. A lista já vem ordenada nessa sequência.</div>
+
+  <h3>A classe do Jev</h3>
+  <p>O selo antes do nome é a nota que o Jev, a qualificação automática, deu ao lead pela conversa. Ela é recalculada a cada 15 minutos.</p>
+  <ul>
+    <li><span class="jev A" style="font-family:var(--mono)">A · Jev</span> roxo: lead quente, com perfil e intenção. Prioridade na fila e no seu dia.</li>
+    <li><span class="jev B" style="font-family:var(--mono)">B · Jev</span> azul: morno. Vale trabalhar, sem furar a fila dos A.</li>
+    <li><span class="jev C" style="font-family:var(--mono)">C · Jev</span> cinza: frio ou sem perfil claro.</li>
+  </ul>
+</section>
+
+<section id="comercial">
+  <h2>A aba ☎️ Comercial: o card do lead</h2>
+  <p>O pipeline tem cinco colunas: <b>Recebidos</b> (ainda sem nenhuma tentativa), <b>Em cadência</b> (você já trabalhou o lead), <b>Ligação agendada</b>, <b>Matriculados</b> e <b>Devolvidos</b>. O cabeçalho de cada coluna mostra quantos cards há de cada cor.</p>
+  <div class="tela">
+    <div class="leg">Exemplo · cabeçalho da coluna</div>
+    <div class="colh"><h4>Em cadência</h4><small>trabalhando o lead</small><div class="cont"><span class="c-red">6 esperando você</span><span class="c-amber">21</span><span class="c-green">13</span><span class="c-grey">4</span></div></div>
+    <div class="leg" style="margin-top:14px">Exemplo · card com as partes numeradas</div>
+    <div class="card red" style="margin-bottom:4px">
+      <span class="anot" style="top:10px;right:60px">2</span><span class="anot" style="top:10px">3</span>
+      <div class="top"><span class="jev A">A · Jev</span><span class="nome">MARCOS</span><span class="posse alerta">⏳ 2d</span></div>
+      <div class="estado"><span class="d"></span>Respondeu há 2 h · esperando você <span class="anot" style="position:static;margin-left:6px">4</span></div>
+      <div class="meta2">💬 última mensagem do lead · 26/10 09:14<br>+55 (92) 99316-1955 · <code>meta_ads</code> · Elite TJ-AM <span class="anot" style="position:static;margin-left:6px">5</span></div>
+      <div class="av">⚠ volta para a recuperação da Anne em 2 d se não houver atividade <span class="anot" style="position:static;margin-left:6px">6</span></div>
+      <div class="btns"><a class="btn g">📇 Dados do lead</a><a class="btn t">💬 Inbox</a></div>
+      <div class="chips"><span class="chip">📞 Atendida</span><span class="chip">📵 Não atendeu ×1</span><span class="chip">🗓 Agendar</span><span class="chip">💳 Agendar matrícula</span><span class="chip">↩ Devolver</span><span class="anot" style="position:static">7</span></div>
+    </div>
+  </div>
+  <ol>
+    <li><b>Faixa colorida</b> na esquerda: a cor do semáforo. Vermelha pulsando = lead esperando há mais de 2 horas.</li>
+    <li><b>Classe do Jev</b> (A, B ou C) antes do nome.</li>
+    <li><b>Relógio de posse:</b> quantos dias faltam dos 14. Fica vermelho a partir de 3 dias.</li>
+    <li><b>Linha de estado:</b> diz em palavras o que a cor significa e há quanto tempo.</li>
+    <li><b>Telefone, origem e mentoria</b> do lead. Abra "Dados do lead" antes de ligar para ver o histórico completo.</li>
+    <li><b>Aviso de posse:</b> aparece nos últimos 3 dias. Se não houver atividade, o lead volta para a Anne e sai do seu pipeline.</li>
+    <li><b>Registrar tentativa:</b> cada ligação atendida ou não atendida fica no histórico. Nada substitui nada; o card acumula. "Devolver" pede o motivo.</li>
+  </ol>
+  <div class="regra"><b>Regra de ouro 1:</b> registre toda tentativa, atendida ou não. Sem registro, o lead parece esquecido, fica cinza e pode voltar para a Anne no prazo.</div>
+  <h3>Os outros estados do card</h3>
+  <div class="tela">
+    <div class="card amber"><div class="top"><span class="jev A">A · Jev</span><span class="nome">Leizanir</span><span class="posse">⏳ 10d</span></div><div class="estado"><span class="d"></span>Sem próxima ação</div><div class="meta2">+55 (94) 99254-3726 · <code>souwebinario</code> · Elite TJ-AM</div><div class="btns"><a class="btn g">▶ Marcar próxima ação</a><a class="btn t">💬 Inbox</a></div></div>
+    <div class="card green"><div class="top"><span class="jev B">B · Jev</span><span class="nome">Ana Paula</span><span class="posse">⏳ 11d</span></div><div class="estado"><span class="d"></span>Próxima ação marcada · esperando o lead</div><div class="meta2">▶ ligar para confirmar o boleto · 27/10 09:00<br>+55 (92) 98123-4455 · <code>blindado</code> · Elite SEDUC-AM</div></div>
+    <div class="card grey"><div class="top"><span class="jev C">C · Jev</span><span class="nome">Roberto</span><span class="posse">⏳ 5d</span></div><div class="estado"><span class="d"></span>Frio · não atendeu ×3 · decidir devolver</div><div class="meta2">+55 (92) 99900-1122 · <code>carrinho</code> · Elite PRF</div><div class="btns"><a class="btn g">↩ Devolver</a><a class="btn t">Última tentativa</a></div></div>
+  </div>
+</section>
+
+<section id="proxima">
+  <h2>Próxima ação: obrigatória em todo lead em posse</h2>
+  <p>Todo card precisa de uma próxima ação com data e hora: "ligar amanhã 9h", "mandar o link depois do almoço", "cobrar resposta na sexta". É o que separa um lead trabalhado de um lead esquecido. Card sem próxima ação fica âmbar; com a ação vencida, também.</p>
+  <h3>Como marcar</h3>
+  <div class="passo"><div class="num">1</div><div>Abra a conversa no <b>💬 Inbox</b> (pelo botão "Inbox" do card ou procurando o nome).</div></div>
+  <div class="passo"><div class="num">2</div><div>No topo da conversa aparece a <b>barra ☎️ do Comercial</b>, com a classe, a posse e os botões de registro.</div></div>
+  <div class="passo"><div class="num">3</div><div>Clique em <b>▶ Próxima ação</b>, escreva o que vai fazer, escolha data e hora e salve.</div></div>
+  <div class="tela">
+    <div class="leg">Exemplo · barra ☎️ no topo da conversa</div>
+    <div class="barra"><span class="jev A">A</span><span>Marcos · posse ⏳ 12d</span><span class="b2">📞 Atendida</span><span class="b2">📵 Não atendeu</span><span class="b2 g">▶ Próxima ação</span><span class="b2">🗓 Agendar</span><span class="b2">💳 Agendar matrícula</span><span class="b2">↩ Devolver</span></div>
+    <div class="leg" style="margin-top:14px">Exemplo · a janela que abre</div>
+    <div class="modal"><h4>▶ Próxima ação</h4><div class="inp">ligar para confirmar o parcelamento no cartão</div><div class="inp">27/10/2026 09:00</div><span class="ok">Salvar</span></div>
+  </div>
+  <div class="regra"><b>Regra de ouro 2:</b> você só sai de um card depois de marcar a próxima ação. Vale também quando o lead respondeu e você já devolveu a resposta.</div>
+  <p>Quando o lead combina uma data para pagar, use <b>💳 Agendar matrícula</b> em vez de próxima ação: o card sai da sua posse sem contar como perda, a Anne retoma no dia combinado e, se o lead não cumprir, ele volta pela fila.</p>
+</section>
+
+<section id="fila">
+  <h2>A fila "a atribuir": de onde vêm os leads novos</h2>
+  <p>A roleta semanal acabou. Os leads chegam por uma fila que o sistema monta sozinho a cada 5 minutos, com três gatilhos:</p>
+  <ul>
+    <li><b>🚨 Escalação:</b> a Anne pediu ajuda humana e ninguém assumiu em 10 minutos.</li>
+    <li><b>💳 Negociação travada:</b> o lead recebeu link ou checkout, respondeu, e está parado há 24 horas sem pagar.</li>
+    <li><b>🔥 Classe A parada:</b> lead nota A do Jev sem movimento há 48 horas. Só entra quando há vaga.</li>
+  </ul>
+  <div class="tela">
+    <div class="leg">Exemplo · fila "a atribuir" na aba ☎️ Comercial</div>
+    <div class="fila">
+      <div class="it"><span class="p">P1</span><span class="gat">🚨 Escalação</span><span>Carla M. · (92) 98877-1100</span><span class="p">Jev A</span><span class="dm">elite_seduc_am · "quero falar com uma pessoa" · desde 26/10 08:40</span><span class="ass">☎️ Assumir</span></div>
+      <div class="it"><span class="p">P2</span><span class="gat">💳 Negociação travada</span><span>Jonas R. · (92) 99123-4040</span><span class="p">Jev B</span><span class="dm">elite_tjam · Link/checkout enviado e parado há 31 h sem pagamento · desde 26/10 07:10</span><span class="ass">☎️ Assumir</span></div>
+      <div class="it"><span class="p">P3</span><span class="gat">🔥 Classe A parada</span><span>Débora S. · (92) 98456-7788</span><span class="p">Jev A</span><span class="dm">webinario_policiasam · Classe A do Jev parada há 52 h · desde 25/10 21:00</span><span class="ass">☎️ Assumir</span></div>
+    </div>
+  </div>
+  <p>Clique em <b>☎️ Assumir</b> e o lead entra na coluna Recebidos do seu pipeline. Ele vem com a mensagem do gatilho (o motivo pelo qual chegou), e o primeiro passo é abrir "Dados do lead" e ler a conversa com a Anne antes de ligar.</p>
+  <div class="regra"><b>Teto de 5 por dia.</b> Cada vendedor assume no máximo 5 leads novos por dia. O objetivo é trabalhar bem os que já estão com você, não acumular. Com a distribuição automática ligada, o sistema entrega até esse teto sozinho e a fila só mostra o que sobrou.</div>
+  <div class="aviso"><b>Prioridade na fila:</b> P1 escalação, P2 negociação travada, P3 classe A. Assuma na ordem, salvo orientação do gestor.</div>
+</section>
+
+<section id="inbox">
+  <h2>O 💬 Inbox: cores por tempo de espera</h2>
+  <p>No Inbox a lógica é a mesma, medida pelo tempo que o lead está esperando resposta: <b>verde até 1 hora, âmbar até 24 horas, vermelho acima de 24 horas</b>. Acima de 14 dias a conversa fica cinza e o texto muda para "decidir: devolver ou retomar". A lista "Aguardando resposta" vem ordenada por urgência, não por data.</p>
+  <div class="tela">
+    <div class="leg">Exemplo · lista do Inbox</div>
+    <div class="colh"><h4>✋ Aguardando minha resposta</h4><div class="cont"><span class="c-red">2 +24 h</span><span class="c-amber">1</span><span class="c-green">1</span><span class="c-grey">1 frios</span><span class="c-amber">1 sem dono</span></div></div>
+    <div class="lista">
+      <div class="row red meu"><div class="rn">Isaias</div><div class="rt">há 2 dias</div><div class="rc"><span class="tag eu">👤 você</span><span class="tag">Com humano</span><span class="tag">Elite TJ-AM</span><span class="st"><span class="b"></span>esperando você</span><span style="font-size:11px">🔒</span></div></div>
+      <div class="row red"><div class="rn">O F G NETO</div><div class="rt">há 26 h</div><div class="rc"><span class="tag semdono">sem dono</span><span class="tag">Com humano</span><span class="tag">Nutrição · PRF</span><span class="st"><span class="b"></span>esperando resposta</span><span style="font-size:11px">🔒</span></div></div>
+      <div class="row amber meu"><div class="rn">Hayala</div><div class="rt">há 6 h</div><div class="rc"><span class="tag eu">👤 você</span><span class="tag">Com humano</span><span class="tag">Elite SEDUC-AM</span><span class="st"><span class="b"></span>esperando você</span><span style="font-size:11px">🔓</span></div></div>
+      <div class="row green meu"><div class="rn">A.C.</div><div class="rt">há 20 min</div><div class="rc"><span class="tag eu">👤 você</span><span class="tag">Com humano</span><span class="tag">Nutrição · TJ-AM</span><span class="st"><span class="b"></span>no prazo · responda</span><span style="font-size:11px">🔓</span></div></div>
+      <div class="row grey"><div class="rn">kizenir</div><div class="rt">há 93 dias</div><div class="rc"><span class="tag">👤 Luana</span><span class="tag">Com humano</span><span class="tag">Elite TJ-AM</span><span class="st"><span class="b"></span>decidir: devolver ou retomar</span><span style="font-size:11px">🔒</span></div></div>
+    </div>
+  </div>
+  <ul>
+    <li><b>👤 você</b> (chip dourado, linha com fundo dourado): o lead é seu. <b>sem dono</b> (âmbar): conversa com humano que ninguém assumiu; abra e escolha o responsável no seletor 👤 do topo.</li>
+    <li><b>🔓 / 🔒</b> é a janela de 24 horas do WhatsApp. Aberta, você escreve livremente. Fechada, só dá para mandar um template aprovado (o painel oferece o de retomada). Não confunda com o semáforo.</li>
+    <li>Os contadores no cabeçalho dizem quantas conversas há em cada situação. Comece pelas vermelhas.</li>
+  </ul>
+  <div class="aviso"><b>Em breve, Inbox só seu.</b> Quando essa chave for ligada, cada vendedor verá no Inbox apenas as conversas em que é o responsável, mais a fila para assumir. Conversas dos agentes e dos colegas deixam de aparecer. Você será avisado no dia.</div>
+</section>
+
+<section id="limpeza">
+  <h2>O que foi feito na limpeza de 26/10</h2>
+  <p>Antes de ligar a distribuição automática, o painel foi arrumado:</p>
+  <ul>
+    <li>Conversas "com humano" paradas há mais de 14 dias, sem card no Comercial, <b>voltaram para a Anne</b>. Elas saíram do responsável e entraram na lista de recuperação (ações de desconto e nutrição). Se o lead escrever de novo, a Anne atende na hora; se precisar de gente, ele volta pela fila.</li>
+    <li>Conversas de quem pediu para não receber mensagens, ou que o Jev marcou como fora do público, saíram do Inbox humano.</li>
+    <li>A fila "a atribuir" foi podada: negociações travadas há mais de 7 dias foram para a recuperação. Sobraram as recentes, as classes A e as escalações.</li>
+    <li>Nada mudou nos cards que já estão no seu pipeline nem nos leads que compraram.</li>
+  </ul>
+  <p>Se um lead que você acompanhava sumiu do Inbox e ele voltar a escrever, ele aparece primeiro com a Anne. Para retomar, use o seletor 👤 e assuma.</p>
+</section>
+
+<section id="rotina">
+  <h2>Rotina diária</h2>
+  <div class="rotina">
+    <div class="bloco"><h3>Ao começar o dia</h3><ul>
+      <li>Abra <b>☎️ Comercial</b> e leia os contadores: quantos vermelhos em cada coluna.</li>
+      <li>Responda todos os <b>vermelhos</b> antes de qualquer ligação nova.</li>
+      <li>Olhe <b>🗓 Suas ligações agendadas</b> no topo: atrasada aparece em vermelho.</li>
+      <li>Abra o <b>💬 Inbox</b> e zere "Aguardando minha resposta".</li>
+    </ul></div>
+    <div class="bloco"><h3>Durante o dia</h3><ul>
+      <li>Assuma leads da <b>fila a atribuir</b> na ordem P1, P2, P3, até o teto de 5.</li>
+      <li>Antes de ligar: <b>📇 Dados do lead</b> e a conversa com a Anne.</li>
+      <li>Registre <b>cada tentativa</b>: atendida ou não atendeu.</li>
+      <li>Ao sair de um card, marque a <b>▶ próxima ação</b> com data e hora.</li>
+      <li>Combinou data de pagamento: <b>💳 Agendar matrícula</b>.</li>
+    </ul></div>
+    <div class="bloco"><h3>Ao terminar o dia</h3><ul>
+      <li>Nenhum card <b>âmbar</b>: todo lead em posse com próxima ação futura.</li>
+      <li>Nenhum <b>vermelho</b> sem resposta.</li>
+      <li>Decida os <b>cinzas</b>: última tentativa amanhã ou <b>↩ Devolver</b> com motivo.</li>
+      <li>Confira o relógio de posse: cards com 3 dias ou menos precisam de ação hoje.</li>
+    </ul></div>
+  </div>
+  <h3>Regras de ouro</h3>
+  <ol>
+    <li>Vermelho primeiro, sempre. Lead que respondeu não espera mais de 2 horas.</li>
+    <li>Registre toda tentativa. O que não está no card não existe.</li>
+    <li>Nenhum card sem próxima ação com data.</li>
+    <li>Até 5 leads novos por dia. Qualidade, não volume.</li>
+    <li>Lead frio é devolvido com motivo, não abandonado. Devolver bem alimenta a recuperação.</li>
+    <li>Posse de 14 dias: o que não anda volta para a Anne sozinho.</li>
+  </ol>
+  <h3>O que o gestor recebe no WhatsApp</h3>
+  <p>Dois alertas automáticos vão para o Fábio a cada 15 minutos quando acontecem: <b>fila acima do teto</b> (leads esperando sem vendedor com vaga) e <b>negociação travada sem ninguém assumir</b>. Não é fiscalização de pessoa; é sinal de que a fila precisa de braço.</p>
+</section>
+
+<section id="faq" class="faq">
+  <h2>Dúvidas frequentes</h2>
+  <details><summary>O card ficou vermelho, mas eu já respondi pelo celular.</summary><p>O painel só enxerga mensagens enviadas pela Anne. Responda sempre pelo Inbox do painel, para o histórico ficar na conversa e a cor atualizar.</p></details>
+  <details><summary>Marquei próxima ação e o card continua âmbar.</summary><p>Veja se a data ficou no passado. Ação vencida também é âmbar. Marque de novo com data futura.</p></details>
+  <details><summary>Perdi um lead porque a posse venceu. Dá para pegar de volta?</summary><p>Se ele voltar a conversar e precisar de gente, entra na fila pelo gatilho normal e qualquer vendedor com vaga pode assumir. O gestor também pode restaurar um card devolvido.</p></details>
+  <details><summary>Não consigo assumir da fila.</summary><p>Você chegou ao teto de 5 do dia, ou seu perfil é de escalação (que trabalha nas abas 🚨 Escalações e 💬 Inbox). Fale com o gestor.</p></details>
+  <details><summary>A janela está 🔒 fechada. Como falo com o lead?</summary><p>Use o template de retomada que o Inbox oferece. Assim que o lead responder, a janela abre e você escreve livremente.</p></details>
+  <details><summary>O que é "recuperação"?</summary><p>A lista de leads que voltaram para a Anne (posse vencida, devolvidos, cadência esgotada). Ela alimenta as ações de desconto e a nutrição. Devolver com motivo é o que coloca o lead lá.</p></details>
+  <details><summary>Por que o lead da Black não aparece aqui?</summary><p>A Black tem fluxo próprio e fica fora do Comercial e desta fila.</p></details>
+</section>
+
+<footer class="rodape">Sou Concurseiro e Vou Passar · painel da Anne · guia escrito em 26/10/2026. Dúvidas sobre o painel: fale com o Fábio.</footer>
+</div>
+
+</body>
+</html>
