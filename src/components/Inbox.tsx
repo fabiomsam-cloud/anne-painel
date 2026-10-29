@@ -16,7 +16,9 @@ type Msg = {
   id: string; from_type: string; type: string; content: string | null; transcript: string | null
   status: string; created_at: string; metadata: any; agent_slug: string | null
 }
-type Template = { name: string; body: string; buttons: string[]; category: string }
+type Template = { name: string; body: string; buttons: string[]; category: string; rotulo?: string; dica?: string | null }
+// linha de vendedor_templates (migration 56): curadoria do Lucas na sub-aba 🧩 Templates do Comercial
+type TplRow = { nome: string; rotulo: string; dica: string | null; frentes: string[] | null; ativo: boolean; ordem: number; corpo: string | null; categoria: string }
 // 🔒 nota interna (migration 42): tabela própria — nunca vai ao lead, nunca entra no histórico da IA
 type Nota = { id: string; conversation_id: string; autor_email: string; content: string; created_at: string }
 // ⏰ mensagem agendada pelo humano dentro da janela (migration 44): cancela sozinha se o lead responder antes
@@ -34,11 +36,8 @@ const localIso = (ms: number) => new Date(ms - new Date().getTimezoneOffset() * 
 
 const TEMPLATES_URL = 'https://workflows.manager03.scvpgti.com.br/webhook/anne/meta/templates'
 const SEND_TPL_URL = 'https://workflows.manager03.scvpgti.com.br/webhook/anne/meta/send-template'
-// template de retomada validado pelos vendedores (41% de resposta) — único que o vendedor vê;
-// admin vê todos, com ele no topo
-// templates que o VENDEDOR vê na janela fechada: global_settings.templates_vendedor (migration 40);
-// fallback = o de retomada. Admin vê todos, com esses no topo.
-const TPL_RETOMADA = 'humano_retomada_contato1'
+// templates que o VENDEDOR vê na janela fechada: vendedor_templates (migration 56) aprovados + ativos, filtrados pela
+// frente da conversa, na ordem definida pelo admin comercial; o corpo vem da Meta. Admin vê também os demais aprovados na WABA.
 const JANELA_MS = 24 * 60 * 60 * 1000
 
 // janela de 24h da Meta: aberta enquanto a ÚLTIMA mensagem do lead tem < 24h
@@ -392,20 +391,33 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
     return () => { supabase.removeChannel(ch); clearInterval(t); clearInterval(r); if (recargaTimer.current) clearTimeout(recargaTimer.current) }
   }, [])
 
-  // templates aprovados: carrega quando abrir uma conversa com janela fechada
+  // templates da janela fechada: Meta (corpo) + vendedor_templates (curadoria) + vendedores (assinatura {{2}}),
+  // carregados uma vez e remontados a cada conversa (a frente muda o que aparece)
+  const tplCache = useRef<{ meta: Template[]; rows: TplRow[]; vend: { nome: string; email: string }[] } | null>(null)
   useEffect(() => {
-    if (!sel || tpls.length) return
+    if (!sel) return
     if (janela(sel, agora).aberta) return
+    const montar = (c: NonNullable<typeof tplCache.current>) => {
+      const frente = sel.current_agent_slug
+      const rows = c.rows.filter(r => r.ativo && (!r.frentes?.length || r.frentes.includes(frente)))
+      const vend = rows.map((r): Template | null => {
+        const m = c.meta.find(t => t.name === r.nome)
+        if (m) return { ...m, rotulo: r.rotulo, dica: r.dica }
+        return r.corpo ? { name: r.nome, body: r.corpo, buttons: [], category: r.categoria, rotulo: r.rotulo, dica: r.dica } : null
+      }).filter((t): t is Template => !!t)
+      const lista = vend.map(t => t.name)
+      setTpls(isAdmin ? [...vend, ...c.meta.filter(t => !lista.includes(t.name))] : vend)
+      setSelTplName(vend.length ? vend[0].name : '')
+    }
+    if (tplCache.current) return montar(tplCache.current)
     Promise.all([
-      fetch(TEMPLATES_URL).then(r => r.json()),
-      supabase.from('global_settings').select('value').eq('key', 'templates_vendedor').maybeSingle(),
+      fetch(TEMPLATES_URL).then(r => r.json()).catch(() => ({ templates: [] })),
+      supabase.from('vendedor_templates').select('nome,rotulo,dica,frentes,ativo,ordem,corpo,categoria').eq('status', 'aprovado').order('ordem'),
+      supabase.from('vendedores').select('nome,email'),
     ])
-      .then(([d, gs]) => {
-        const todos: Template[] = d.templates ?? []
-        const lista: string[] = Array.isArray(gs.data?.value) && gs.data.value.length ? gs.data.value : [TPL_RETOMADA]
-        const vend = lista.map(n => todos.find(t => t.name === n)).filter((t): t is Template => !!t)
-        setTpls(isAdmin ? [...vend, ...todos.filter(t => !lista.includes(t.name))] : vend)
-        if (!isAdmin && vend.length) setSelTplName(vend[0].name)
+      .then(([d, vt, vd]) => {
+        tplCache.current = { meta: d.templates ?? [], rows: (vt.data as any) ?? [], vend: (vd.data as any) ?? [] }
+        montar(tplCache.current)
       })
       .catch(() => setTpls([]))
   }, [sel?.id])
@@ -809,6 +821,8 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
   const mem = sel?.contacts?.client_memory ?? {}
   const jan = janela(sel, agora)
   const primeiroNome = (sel?.contacts?.name ?? '').trim().split(/\s+/)[0] || 'concurseiro(a)'
+  // {{2}} do template = primeiro nome de quem tem a conversa (decisão 29/10); sem responsável, Anne
+  const nomeVendedor = (tplCache.current?.vend.find(v => (v.email ?? '').toLowerCase() === (sel?.responsavel_email ?? '').toLowerCase())?.nome ?? 'Anne').trim().split(/\s+/)[0]
 
   // uma linha da lista (usada no bloco fixo e no resto); naFila = mostra o tempo de espera
   const linha = (c: Conv, naFila: boolean) => {
@@ -1281,7 +1295,7 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                       <select value={selTplName} onChange={e => setSelTplName(e.target.value)}
                         className="flex-1 bg-panel border border-line rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-gold/60">
                         <option value="">{tpls.length ? 'Escolha o template…' : 'Carregando templates…'}</option>
-                        {tpls.map(t => <option key={t.name} value={t.name}>[{t.category}] {t.name}</option>)}
+                        {tpls.map(t => <option key={t.name} value={t.name}>{t.rotulo ? `${t.rotulo}${t.dica ? ' — ' + t.dica : ''}` : `[${t.category}] ${t.name}`}</option>)}
                       </select>
                       <button onClick={enviarTemplate} disabled={!selTplName || enviandoTpl}
                         className="bg-gold text-ink font-semibold rounded-xl px-5 text-sm disabled:opacity-30 hover:brightness-110 transition">
@@ -1291,7 +1305,7 @@ export default function Inbox({ convInicial, aoConsumir, isAdmin = true }:
                     {selTplName && (
                       <div className="text-[11px] text-dim border border-teal/25 bg-teal/5 rounded-lg px-3 py-2 whitespace-pre-wrap">
                         {(tpls.find(t => t.name === selTplName)?.body ?? '').split('{{1}}').join(primeiroNome)
-                          .split('{{2}}').join('Anne').split('{{3}}').join('[concurso do agente]')}
+                          .split('{{2}}').join(nomeVendedor).split('{{3}}').join('[concurso do agente]')}
                       </div>
                     )}
                   </>
