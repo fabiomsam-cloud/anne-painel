@@ -11,7 +11,12 @@ export type DocTreinamento = {
 }
 export const DOCS_TREINAMENTO: DocTreinamento[] = [
   {
-    id: 'criterios-mql-sql-2910', titulo: 'Critérios MQL e SQL', data: '2026-10-29',
+    id: 'criterios-mql-sql-prf-2910', titulo: 'PRF: MQL e SQL', data: '2026-10-29',
+    descricao: 'Régua de qualificação da Elite PRF: quem fica fora (secretária eletrônica, cargo administrativo, objeção de valor e de tempo), o que faz ser MQL e SQL, ex-aluno e comprador de ingresso como prioridade, erros comuns e o que cada classe significa para a Anne e para o Comercial.',
+    arquivo: 'criterios-mql-sql-prf-2910.html', publico: 'todos', tags: ['Qualificação', 'MQL', 'SQL', 'PRF'],
+  },
+  {
+    id: 'criterios-mql-sql-2910', titulo: 'TJ-AM: MQL e SQL', data: '2026-10-29',
     descricao: 'O que faz um lead ser MQL, o que faz ser SQL e quem fica fora (secretária eletrônica, concurso errado, objeção de valor). Com exemplos reais do TJ-AM e o que cada classe significa para a Anne e para o Comercial.',
     arquivo: 'criterios-mql-sql-2910.html', publico: 'todos', tags: ['Qualificação', 'MQL', 'SQL', 'TJ-AM'],
   },

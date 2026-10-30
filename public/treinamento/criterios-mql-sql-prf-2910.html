@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>PRF: MQL e SQL</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Bricolage+Grotesque:wght@600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{--bg:#f6f4ee;--fg:#1c2420;--muted:#5d6a63;--line:#dcd8cc;--card:#fffdf8;--accent:#0f6e5c;--accent-soft:#e3f0ea;
+ --display:"Bricolage Grotesque",Georgia,serif;--body:Figtree,-apple-system,"Segoe UI",sans-serif;--mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+ --p-ink:#0b1512;--p-panel:#101d19;--p-panel2:#16261f;--p-line:#1f332a;--p-gold:#f5b942;--p-teal:#35d0ba;--p-cream:#e8efe9;--p-dim:#8aa396;
+ --red:#e06f6f;--amber:#ef9a3c;--green:#6fe08c;--grey:#5f7368;--purple:#b89cff;--blue:#6fb3e0}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121816;--fg:#e8efe9;--muted:#9db0a6;--line:#263730;--card:#18221e;--accent:#4fd1b3;--accent-soft:#17302a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#121816;--fg:#e8efe9;--muted:#9db0a6;--line:#263730;--card:#18221e;--accent:#4fd1b3;--accent-soft:#17302a;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 var(--body);padding-block:0 60px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:860px;margin:0 auto}
+h1,h2,h3{font-family:var(--display);line-height:1.15;text-wrap:balance;margin:0}
+h1{font-size:clamp(28px,5vw,40px)}h2{font-size:26px;margin-top:56px;padding-top:18px;border-top:2px solid var(--line)}h3{font-size:19px;margin-top:28px}
+p,li{max-width:68ch}p{margin:10px 0}ul,ol{padding-left:22px;margin:8px 0}li{margin:4px 0}
+.eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600}
+.lead{font-size:18px;color:var(--muted);max-width:62ch}
+.capa{padding:40px 0 10px}.capa .meta{color:var(--muted);font-size:14px;margin-top:10px}
+nav.sumario{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line);margin:0 -16px;padding:10px 16px;display:flex;gap:6px 14px;flex-wrap:wrap;font-size:13px}
+nav.sumario a{color:var(--fg);text-decoration:none;font-weight:500;padding:3px 0;border-bottom:2px solid transparent}nav.sumario a:hover{border-color:var(--accent)}
+.resumo{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:18px}
+.resumo .it{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.resumo .it b{display:block;font-family:var(--display);font-size:17px;margin-bottom:4px}.resumo .it span{color:var(--muted);font-size:14px}
+.regra{border-left:4px solid var(--accent);background:var(--accent-soft);padding:12px 16px;border-radius:0 10px 10px 0;margin:16px 0;max-width:72ch}
+.regra b{font-family:var(--display)}
+.aviso{border-left:4px solid var(--amber);background:color-mix(in srgb,var(--amber) 12%,var(--card));padding:12px 16px;border-radius:0 10px 10px 0;margin:16px 0;max-width:72ch}
+table{border-collapse:collapse;width:100%;font-size:14.5px;margin:12px 0}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}th{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.tw{overflow-x:auto}
+.classe{display:inline-block;font-family:var(--mono);font-size:12px;font-weight:700;padding:2px 8px;border-radius:6px;border:1px solid}
+.classe.sql{color:var(--green);border-color:rgba(111,224,140,.5);background:rgba(111,224,140,.1)}
+.classe.mql{color:var(--blue);border-color:rgba(111,179,224,.5);background:rgba(111,179,224,.12)}
+.classe.fora{color:var(--red);border-color:rgba(224,111,111,.5);background:rgba(224,111,111,.1)}
+.classe.c{color:var(--grey);border-color:rgba(95,115,104,.5);background:rgba(95,115,104,.12)}
+.tela{background:var(--p-ink);color:var(--p-cream);border:1px solid #2a3d34;border-radius:16px;padding:14px;margin:16px 0;font:13px/1.4 -apple-system,"Segoe UI",sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.18);overflow:hidden}
+.tela .leg{font-size:11px;color:var(--p-dim);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.tela .leg b{color:var(--p-gold);font-weight:600;letter-spacing:0;text-transform:none;font-size:12px}
+.tela .leg .classe{margin-left:auto;letter-spacing:0;text-transform:none}
+.bal{max-width:78%;padding:8px 11px;border-radius:12px;margin:5px 0;font-size:13px;line-height:1.4;white-space:pre-wrap}
+.bal.lead{background:var(--p-panel2);border:1px solid var(--p-line);border-bottom-left-radius:4px}
+.bal.anne{background:rgba(245,185,66,.12);border:1px solid rgba(245,185,66,.35);margin-left:auto;border-bottom-right-radius:4px}
+.bal small{display:block;color:var(--p-dim);font-size:10.5px;margin-bottom:2px}
+.bal mark{background:rgba(111,224,140,.25);color:var(--p-cream);border-radius:3px;padding:0 3px}
+.bal mark.neg{background:rgba(224,111,111,.3)}
+.pq{font-size:12px;color:var(--p-dim);margin-top:8px;border-top:1px dashed var(--p-line);padding-top:7px}
+.pq b{color:var(--p-cream)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.bloco{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}.bloco h3{margin-top:0;font-size:17px}.bloco li{font-size:14.5px}
+.faq details{border-bottom:1px solid var(--line);padding:8px 0}.faq summary{cursor:pointer;font-weight:600}.faq p{color:var(--muted);font-size:15px}
+.rodape{margin-top:50px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:14px}
+a{color:var(--accent)}
+@media (max-width:520px){.bal{max-width:92%}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="capa">
+  <div class="eyebrow">Anne Vendedora · time comercial · 29 de outubro de 2026</div>
+  <h1>PRF: MQL e SQL</h1>
+  <p class="lead">O que faz um lead da Elite PRF ser MQL, o que faz ser SQL e quem fica fora. Com exemplos reais das conversas da Anne e o que muda em relação ao TJ-AM.</p>
+  <div class="meta">Base: 542 matrículas da Elite PRF desde julho de 2026, 857 conversas lidas e medidas pelo Jev. Os exemplos são conversas reais, só com o primeiro nome. As porcentagens são a taxa de matrícula de cada grupo.</div>
+</header>
+
+<nav class="sumario" aria-label="Sumário">
+  <a href="#resumo">Resumo</a><a href="#regra">A regra</a><a href="#fora">Quem fica fora</a><a href="#mql">MQL</a><a href="#sql">SQL</a><a href="#erros">Erros comuns</a><a href="#ficha">A ficha</a><a href="#muda">Mudança de classe</a><a href="#acao">O que fazer</a><a href="#faq">Dúvidas</a>
+</nav>
+
+<section id="resumo">
+  <h2>Resumo em um minuto</h2>
+  <div class="resumo">
+    <div class="it"><b>MQL</b><span>Pessoa real, que quer a carreira policial da PRF e contou pelo menos duas coisas sobre a própria preparação. Ainda não falou em dinheiro. Converte 4% a 5%.</span></div>
+    <div class="it"><b>SQL</b><span>Lead que já está resolvendo <u>como</u> pagar: perguntou forma, disse que não tem cartão ou limite, prometeu data, pediu desconto, pediu humano ou pediu o link. Converte 24% a 41%.</span></div>
+    <div class="it"><b>Fora</b><span>Secretária eletrônica, concurso errado, cargo administrativo e objeção de valor. Converte 0% a 4%.</span></div>
+    <div class="it"><b>Dois sinais fortes só da PRF</b><span>Quem já foi aluno (Elite Federal, Elite PRF antiga) converte 39%. Quem comprou o ingresso do Profissão PRF ou o Método 2 Horas converte 37%.</span></div>
+  </div>
+</section>
+
+<section id="regra">
+  <h2>A regra de bolso</h2>
+  <p>Na PRF vale a mesma regra do TJ-AM, mais forte ainda: o que separa as classes <b>não é quem o lead é</b>. É o que ele já disse sobre <b>pagar</b>.</p>
+  <ul>
+    <li><span class="classe mql">MQL</span> é uma pessoa real, mirando o cargo de policial, que se abriu sobre a própria preparação. Ela ainda não falou em dinheiro.</li>
+    <li><span class="classe sql">SQL</span> é o lead que já está resolvendo <b>como</b> pagar, mesmo que ainda não tenha conseguido.</li>
+  </ul>
+  <div class="regra"><b>Na PRF o perfil pesa ainda menos que no TJ-AM.</b> Começar do zero, trabalhar, ter 3 horas por dia: tudo isso converte 6% a 10%, igual à média. Quem pergunta "aceita boleto?" converte 41%. Quem diz "não tenho cartão" converte 69% quando diz isso antes do link.</div>
+  <div class="tw"><table>
+    <tr><th>Grupo</th><th>Taxa de matrícula</th><th>Parte das vendas</th></tr>
+    <tr><td><span class="classe sql">SQL</span> sinal de compra</td><td>24% (conversa inteira) · 41% (antes do link)</td><td>7 em cada 10</td></tr>
+    <tr><td><span class="classe mql">MQL</span> perfil e interesse</td><td>4% a 5%</td><td>2 em cada 10</td></tr>
+    <tr><td><span class="classe c">C</span> conversa rasa</td><td>7% a 10%</td><td>1 em cada 10</td></tr>
+    <tr><td><span class="classe fora">Fora</span> valor, tempo, presencial, outra mentoria</td><td>0% a 3%</td><td>quase nada</td></tr>
+    <tr><td><span class="classe fora">Fora</span> secretária eletrônica · cargo administrativo</td><td>0%</td><td>nada</td></tr>
+  </table></div>
+  <p>Na PRF, 85% das matrículas vieram de quem <b>nunca conversou</b> com a Anne: comprou na aula do Profissão PRF ou na página. Esta régua vale para os 15% que conversam, e é onde a Anne decide.</p>
+</section>
+
+<section id="fora">
+  <h2>Antes de tudo: quem não é nem MQL</h2>
+  <p>Quatro portas de saída na PRF. Se o lead cai numa delas, não entra em classe nenhuma.</p>
+
+  <h3>1. Secretária eletrônica</h3>
+  <p>"Agradece seu contato, como podemos ajudar", "não estou disponível no momento", "este é o contato da Dra. Fulana". Não é ninguém respondendo. Zero em 78 conversas. A Anne manda dica de estudo, follow-up e cupom para robôs.</p>
+  <div class="tela">
+    <div class="leg"><b>Exemplo real</b> <span class="classe fora">FORA</span></div>
+    <div class="bal anne"><small>Anne</small>Liberamos uma série de aulas gratuitas de Legislação de Trânsito com o Professor Fábio. Quer receber o acesso?</div>
+    <div class="bal lead"><small>Lead</small><mark class="neg">Este é o contato da Dra. Maíra. Eu sou a Andrea e vou te auxiliar.</mark> Para facilitar, digite o local de atendimento: 1. Santa Efigênia 2. Pampulha…</div>
+    <div class="bal anne"><small>Anne</small>Oi, Andrea! Você ou a Dra. Maíra têm interesse em se preparar para a PRF?</div>
+    <div class="pq"><b>Regra:</b> duas mensagens de boas-vindas ou de "indisponível" e acabou. Não conta como resposta, não entra em cadência, não recebe cupom.</div>
+  </div>
+
+  <h3>2. Cargo administrativo da PRF</h3>
+  <p>Quem diz que quer o <b>administrativo</b> (nível médio, sem TAF) não compra: <b>zero em 50 conversas</b>. A Anne oferece a "Elite PRF Administrativo" por 12x R$ 119 e ninguém fecha. Esse lead costuma ser quem ainda não tem o superior e quer uma porta de entrada. Não é lead da Elite PRF. Vira lead de nutrição até concluir a faculdade.</p>
+  <div class="tela">
+    <div class="leg"><b>Marcos</b> <span class="classe fora">FORA · administrativo</span></div>
+    <div class="bal lead"><small>Lead</small>Estou terminando o ensino superior ainda mas <mark class="neg">queria saber sobre o administrativo da PRF que não precisa de ensino superior</mark></div>
+    <div class="bal lead"><small>Lead</small>Me interesso sim mas queria saber se é confiável</div>
+    <div class="bal lead"><small>Lead</small><mark class="neg">Assim que eu tiver com a grana procuro vocês</mark>. Quando acabar minha faculdade vou fazer o da PRF polícia</div>
+    <div class="pq"><b>Por quê:</b> cargo administrativo e objeção de valor. Ele mesmo disse quando volta: depois da faculdade. Nutrição, não oferta.</div>
+  </div>
+
+  <h3>3. Objeção de valor</h3>
+  <p>"No momento eu não tenho", "não posso pagar esse valor", "assim que tiver com a grana". Converte 4%. Baixa pressão: sem cupom semanal, só gatilho de abertura.</p>
+  <div class="tela">
+    <div class="leg"><b>Adria</b> <span class="classe fora">FORA · valor</span></div>
+    <div class="bal lead"><small>Lead</small>Começando do zero. Sim (trabalho). 3h por dia</div>
+    <div class="bal lead"><small>Lead</small>Falta de direção do que estudar e redação</div>
+    <div class="bal anne"><small>Anne</small>De R$ 3.000,00 por 12x de R$ 199,99 no cartão ou R$ 1.999,00 à vista. Quer que eu te envie o link?</div>
+    <div class="bal lead"><small>Lead</small><mark class="neg">No momento eu não tenho</mark>. Muito obrigada</div>
+    <div class="pq"><b>Por quê:</b> perfil completo, 3 horas por dia, dor clara. Mas a resposta ao preço foi "não tenho". Recebeu link, três follow-ups e dois cupons depois disso. Não respondeu mais.</div>
+  </div>
+
+  <h3>4. Objeção de tempo</h3>
+  <p>Só na PRF: quando o principal obstáculo é "não tenho tempo, minha rotina não deixa", <b>zero em 90</b>. No TJ-AM esse lead converte perto da média. Na PRF a Anne responde com ciclo enxuto e pitch, e a conversa morre. Tempo como obstáculo principal é baixa pressão, com conteúdo, não com link.</p>
+  <div class="aviso"><b>A diferença que a equipe mais erra:</b> "não tenho como pagar" é valor, sai. "Não tenho cartão" é forma, entra como SQL. A palavra <i>dinheiro</i> derruba. A palavra <i>boleto</i> sobe.</div>
+</section>
+
+<section id="mql">
+  <h2>O que faz um lead ser MQL</h2>
+  <p>Precisa de <b>todos</b> estes, ao mesmo tempo:</p>
+  <ol>
+    <li>É uma pessoa real respondendo com texto próprio. Não só botão em maiúsculas, "sim" e "ok".</li>
+    <li>Quer o cargo de <b>policial</b> rodoviário. Não o administrativo.</li>
+    <li>Contou pelo menos <b>dois</b> itens sobre a própria preparação: situação (do zero ou já estuda), rotina ou horas por dia, se trabalha, a dor principal (redação, TAF, direção), ou perguntou como a mentoria funciona ou quanto custa.</li>
+    <li>Nenhuma das quatro portas de saída.</li>
+  </ol>
+  <div class="regra"><b>Dois atalhos para MQL forte na PRF:</b> já foi aluno de qualquer Elite (Elite Federal, Elite PRF antiga, Diamante) converte 39%. Já comprou o ingresso do Profissão PRF ou o Método 2 Horas converte 37%. Esses dois entram direto na prioridade, mesmo sem sinal de pagamento.</div>
+
+  <h3>É MQL</h3>
+  <div class="grid2">
+    <div class="tela">
+      <div class="leg"><b>William</b> <span class="classe mql">MQL</span></div>
+      <div class="bal lead"><small>Lead</small>Quero saber como me preparar para a PRF</div>
+      <div class="bal lead"><small>Lead</small><mark>Começar do zero</mark></div>
+      <div class="bal lead"><small>Lead</small><mark>4 horas</mark></div>
+      <div class="bal lead"><small>Lead</small>Sim</div>
+      <div class="bal lead"><small>Lead</small>Sim</div>
+      <div class="pq"><b>Por quê:</b> situação e horas. Topou o ciclo de duas semanas e sumiu. Recebeu link, follow-up e cupom. Nunca falou em pagamento.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Deivison</b> <span class="classe mql">MQL</span></div>
+      <div class="bal lead"><small>Lead</small>Sim, <mark>parte da noite</mark> (trabalho)</div>
+      <div class="bal lead"><small>Lead</small>Eu <mark>já estou embalado com o concurso da GMM</mark>, tenho um cronograma diário</div>
+      <div class="bal lead"><small>Lead</small>Acordo às 8, malho às 9 e às 11 estudo até 12:30</div>
+      <div class="bal lead"><small>Lead</small>Gostaria mais de uma direção</div>
+      <div class="pq"><b>Por quê:</b> rotina, já estuda, dor clara. Respondeu "Sim" ao preço e parou. MQL típico: vale a pergunta de pagamento, não vale ligação.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Tábita</b> <span class="classe mql">MQL</span> com dúvida de cargo</div>
+      <div class="bal lead"><small>Lead</small>Começar do zero. Sim (trabalho). <mark>Não saber por onde começar</mark></div>
+      <div class="bal lead"><small>Lead</small><mark>Como seria os treinos do TAF?</mark></div>
+      <div class="bal lead"><small>Lead</small>Uma dúvida. Esse material é referente a PRF administrativo ou só PRF?</div>
+      <div class="pq"><b>Por quê:</b> perfil e pergunta sobre o TAF, sinal de que mira o cargo policial. A dúvida sobre administrativo precisava de resposta antes do link, não depois.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Cleber</b> <span class="classe mql">MQL</span> que virou comprador</div>
+      <div class="bal lead"><small>Lead</small>Eu vi as lives do professor Fábio, está me ajudando bastante. <mark class="neg">No momento financeiramente não consigo ter a mentoria</mark> mas para frente ao me equilibrar estarei sim junto com vocês.</div>
+      <div class="bal lead"><small>Lead</small>Estou estudando o que tenho mais dificuldade, leis e redação. <mark>Redação para mim é meu vilão</mark></div>
+      <div class="bal lead"><small>Lead</small><mark>Estou com 1 hora</mark></div>
+      <div class="pq"><b>Por quê:</b> abriu com valor, mas tinha comprado o Método 2 Horas e contou tudo. Comprou a Elite cinco dias depois, sem link na conversa. Comprador de low ticket que conversa é MQL forte mesmo com objeção.</div>
+    </div>
+  </div>
+
+  <h3>Parece MQL e não é</h3>
+  <div class="grid2">
+    <div class="tela">
+      <div class="leg"><b>Macedo</b> <span class="classe c">C · rasa</span></div>
+      <div class="bal lead"><small>Lead</small>Por onde começar</div>
+      <div class="bal lead"><small>Lead</small>PTF</div>
+      <div class="bal lead"><small>Lead</small>PRF</div>
+      <div class="bal lead"><small>Lead</small>Zero</div>
+      <div class="bal lead"><small>Lead</small>Sim</div>
+      <div class="pq"><b>Por quê:</b> uma palavra por mensagem, nunca disse nada sobre si. Dois meses depois: "Fiquei com uma dúvida". Conversa rasa.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Katiany</b> <span class="classe fora">FORA · administrativo</span></div>
+      <div class="bal lead"><small>Lead</small><mark class="neg">Só PRF administrativo</mark></div>
+      <div class="bal lead"><small>Lead</small>Zero. Consigo estudar 1:30 por dia</div>
+      <div class="bal lead"><small>Lead</small>Montar um plano de estudo que seja focado na prova</div>
+      <div class="bal lead"><small>Lead</small>Qual o valor do curso</div>
+      <div class="bal lead"><small>Lead</small>Não tenho interesse</div>
+      <div class="pq"><b>Por quê:</b> parecia MQL perfeito, até perguntou o valor. Mas o cargo é administrativo. Zero em 50.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Danillo</b> <span class="classe fora">FORA · valor, por erro nosso</span></div>
+      <div class="bal lead"><small>Lead</small>QUERO A MENTORIA</div>
+      <div class="bal lead"><small>Lead</small>Já foi pago. <mark class="neg">Quero contestar o pix. Esse valor está errado. No vídeo ele falou 159,00</mark></div>
+      <div class="bal lead"><small>Lead</small>Não posso pagar esse valor. Quero meu reembolso</div>
+      <div class="pq"><b>Por quê:</b> pagou R$ 1.597 à vista achando que era R$ 159. Reembolsado. Não é objeção do lead: é o preço mal explicado na aula e no link. Esse caso tem que virar correção, não classe.</div>
+    </div>
+  </div>
+  <p>O que <b>não</b> conta para MQL na PRF, porque não muda a conversão: começar do zero (6%), trabalhar (10%), horas por dia, pedir o kit ou material (zero em 8), dizer que a dor é redação ou TAF. Tudo isso é a média.</p>
+</section>
+
+<section id="sql">
+  <h2>O que faz um lead ser SQL</h2>
+  <p>Basta <b>um</b> destes seis sinais, dito pelo próprio lead. Na PRF eles são ainda mais fortes que no TJ-AM.</p>
+  <div class="tw"><table>
+    <tr><th>Sinal</th><th>Como aparece</th><th>Conversa inteira</th><th>Antes do link</th></tr>
+    <tr><td><b>1. Perguntou ou discutiu a forma de pagamento</b></td><td>"Aceita boleto?", "tem recorrente?", "a primeira parcela fica pra que dia?"</td><td>41%</td><td>53%</td></tr>
+    <tr><td><b>2. Disse que não tem cartão ou limite</b></td><td>"Não tenho cartão", "não tenho todo esse valor no cartão", "vou pagar o cartão primeiro"</td><td>33%</td><td>69%</td></tr>
+    <tr><td><b>3. Prometeu uma data</b></td><td>"Só recebo dia 1º", "dia 4 vira meu cartão", "só tenho dinheiro sexta", "meu FGTS cai dia 27"</td><td>33%</td><td>55%</td></tr>
+    <tr><td><b>4. Pediu desconto ou cupom</b></td><td>"Tem desconto à vista?", "um valor mais acessível"</td><td>29%</td><td>40%</td></tr>
+    <tr><td><b>5. Pediu para falar com uma pessoa</b></td><td>"Quero falar com atendente", "é do delegado Fábio mesmo?"</td><td>33%</td><td>50%</td></tr>
+    <tr><td><b>6. Disse que quer entrar ou pediu o link</b></td><td>"Pode enviar", "quero minha vaga", "QUERO SER PRF" seguido de texto próprio</td><td>29%</td><td>42%</td></tr>
+  </table></div>
+
+  <h3>É SQL</h3>
+  <div class="grid2">
+    <div class="tela">
+      <div class="leg"><b>Letice</b> <span class="classe sql">SQL</span> sem cartão e data</div>
+      <div class="bal lead"><small>Lead</small>QUERO SER PRF</div>
+      <div class="bal lead"><small>Lead</small><mark>Não tenho cartão</mark></div>
+      <div class="bal lead"><small>Lead</small><mark>Eu só recebo dia 1º</mark>, tive que gastar minhas economias com minha mãe internada</div>
+      <div class="bal lead"><small>Lead</small>Esse valor pra matrícula eu consigo, não consigo é o valor total das parcelas</div>
+      <div class="bal lead"><small>Lead</small><mark>Dia primeiro eu consigo</mark></div>
+      <div class="pq"><b>Por quê:</b> sem cartão, data e intenção. A Anne mandou o link para ela guardar e pagar no dia 1º. Comprou dia 28.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Luis</b> <span class="classe sql">SQL</span> data e forma</div>
+      <div class="bal lead"><small>Lead</small>QUERO AS CONDIÇÕES</div>
+      <div class="bal lead"><small>Lead</small>Consigo estudar 4 horas por dia</div>
+      <div class="bal lead"><small>Lead</small><mark>Vou esperar até o dia 04 que vira meu cartão</mark></div>
+      <div class="bal lead"><small>Lead</small>Esse parcelamento no boleto em 10 vezes, <mark>a primeira parcela fica pra que dia?</mark></div>
+      <div class="bal lead"><small>Lead</small>Não dá pra fazer em 10 vezes no cartão? Aí é no dia do vencimento e fica melhor pra mim</div>
+      <div class="pq"><b>Por quê:</b> data, forma, detalhe de vencimento. Tinha comprado o Método 2 Horas. A Anne agendou o dia 4 e chamou. Comprou dia 9 com a Thayanny.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Valente</b> <span class="classe sql">SQL</span> forma de pagamento</div>
+      <div class="bal lead"><small>Lead</small>QUERO SER PRF. Começar do zero. Saio de casa pela manhã e retorno às 21h30</div>
+      <div class="bal lead"><small>Lead</small><mark>Quero saber se tem a opção de pagamento recorrente</mark></div>
+      <div class="bal lead"><small>Lead</small><mark>Não tenho todo esse valor no cartão de crédito</mark></div>
+      <div class="bal lead"><small>Lead</small>Nesse valor eu tenho direito a quê?</div>
+      <div class="pq"><b>Por quê:</b> forma e limite na terceira mensagem. Precisou do humano para o parcelamento recorrente. Comprou cinco dias depois.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Zildo</b> <span class="classe sql">SQL</span> que esperou 40 dias</div>
+      <div class="bal lead"><small>Lead</small>QUERO AS CONDIÇÕES. Quero sim</div>
+      <div class="bal lead"><small>Lead</small><mark>Vou pagar o meu cartão primeiro, assim eu já compro o curso</mark></div>
+      <div class="bal lead"><small>Lead</small><mark>Eu pagaria até o valor total mas no boleto, todo mês! Eu não tenho cartão pra dividir</mark></div>
+      <div class="pq"><b>Por quê:</b> data e forma em agosto. Ficou 40 dias recebendo cupom AGORA15. Comprou em outubro quando a Thayanny liberou o Pix parcelado. O sinal de agosto já era a resposta.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Dórea</b> <span class="classe sql">SQL</span> data e à vista</div>
+      <div class="bal lead"><small>Lead</small>QUERO PRF. Só vou ter como adquirir dia 27, queria saber se dava tempo</div>
+      <div class="bal lead"><small>Lead</small><mark>Eu dei entrada no meu FGTS</mark>. E só vai cair a partir desse dia</div>
+      <div class="bal lead"><small>Lead</small><mark>Eu quero pagar à vista</mark>. Eu quero o Elite com a pós</div>
+      <div class="pq"><b>Por quê:</b> data, forma e produto definido. O professor mandou os dois links para guardar. Comprou no dia 27.</div>
+    </div>
+    <div class="tela">
+      <div class="leg"><b>Rafael</b> <span class="classe sql">SQL</span> que ainda não comprou</div>
+      <div class="bal lead"><small>Lead</small>Olá, quero mais informações sobre a mentoria Elite PRF.</div>
+      <div class="bal lead"><small>Lead</small><mark>Eu quero parcelar no boleto</mark></div>
+      <div class="bal lead"><small>Lead</small>Parcelado no boleto a primeira pago quando? <mark>Eu posso pagar a primeira no dia 09/10</mark></div>
+      <div class="bal lead"><small>Lead</small>Esse valor está muito alto para o meu orçamento mensal (12x). Queria em 10x no boleto</div>
+      <div class="pq"><b>Por quê:</b> forma e data. A Anne agendou e chamou no dia 9: sem resposta. Continua SQL: o que ele precisa é o boleto em 10 vezes confirmado, não o cupom de 15% no cartão que recebeu.</div>
+    </div>
+  </div>
+</section>
+
+<section id="erros">
+  <h2>Erros comuns na hora de classificar</h2>
+  <div class="tw"><table>
+    <tr><th>O lead disse</th><th>Parece</th><th>É</th><th>Por quê</th></tr>
+    <tr><td>"Quero o administrativo da PRF"</td><td>MQL</td><td><span class="classe fora">FORA</span></td><td>Zero em 50. Nutrição até ter o superior.</td></tr>
+    <tr><td>"No momento eu não tenho"</td><td>SQL com objeção</td><td><span class="classe fora">FORA</span></td><td>Objeção de valor. 4%.</td></tr>
+    <tr><td>"Não tenho cartão"</td><td>Objeção, desiste</td><td><span class="classe sql">SQL</span></td><td>Objeção de forma. 69% antes do link.</td></tr>
+    <tr><td>"Minha rotina não deixa, não tenho tempo"</td><td>MQL com dor</td><td><span class="classe fora">FORA</span> na PRF</td><td>Zero em 90 quando é o obstáculo principal. Conteúdo, não link.</td></tr>
+    <tr><td>"Quanto custa?"</td><td>SQL</td><td><span class="classe mql">MQL</span></td><td>Perguntar valor converte 22%. Perguntar "como pago" é SQL.</td></tr>
+    <tr><td>Botão "QUERO SER PRF" e nada mais</td><td>SQL</td><td><span class="classe c">C</span></td><td>Botão é porta aberta. Vira SQL quando escreve com as próprias palavras sobre pagar ou entrar.</td></tr>
+    <tr><td>"Já fui Elite Federal", "já sou Elite"</td><td>Já é aluno, ignorar</td><td><span class="classe mql">MQL</span> forte</td><td>39% compram de novo. Prioridade, com a oferta certa (renovação ou Elite PRF).</td></tr>
+    <tr><td>"Já paguei o ingresso do Profissão PRF"</td><td>Low ticket, não é aluno</td><td><span class="classe mql">MQL</span> forte</td><td>37% sobem para a Elite. É a ascensão.</td></tr>
+    <tr><td>"Quero o kit / material / Raio-X"</td><td>Interesse</td><td>nada</td><td>Zero em 8. Entregar e seguir.</td></tr>
+    <tr><td>"Agradece seu contato, como podemos ajudar?"</td><td>Lead respondeu</td><td><span class="classe fora">FORA</span></td><td>Secretária eletrônica. Zero em 78.</td></tr>
+  </table></div>
+</section>
+
+<section id="ficha">
+  <h2>O que a ficha já diz antes da conversa</h2>
+  <p>Antes de falar com a Anne, muitos leads respondem a pesquisa de qualificação. Cruzamos 63.581 fichas da PRF (setembro de 2024 a outubro de 2026) com a matrícula na Elite PRF feita depois da ficha: 2.649 compraram, 4,2%. A base é menor que a do TJ-AM porque a PRF é nacional e a maioria chega pelo tráfego frio. O que importa é a diferença entre as respostas.</p>
+  <div class="tw"><table>
+    <tr><th>O lead respondeu na ficha</th><th>Melhor resposta</th><th>Pior resposta</th><th>Diferença</th></tr>
+    <tr><td><b>Experiência em concursos</b></td><td>concursado que quer outra carreira 4,0%</td><td>concursado que quer carreira policial 0,8%</td><td>5,0×</td></tr>
+    <tr><td><b>O que atrapalha seus estudos</b></td><td>foco 3,9% · disciplina 3,5%</td><td>dinheiro 0,8%</td><td>4,7×</td></tr>
+    <tr><td><b>Escolaridade</b></td><td>tecnólogo 3,6% · graduado 2,8%</td><td>ensino médio 1,1%</td><td>3,2×</td></tr>
+    <tr><td><b>Renda</b></td><td>acima de R$ 4.664: 3,8%</td><td>abaixo de um salário mínimo 2,0% · até R$ 1.903: 1,4%</td><td>2,8×</td></tr>
+    <tr><td><b>Já estudou conosco</b></td><td>sim 5,5%</td><td>não 2,6%</td><td>2,1×</td></tr>
+    <tr><td><b>Tempo disposto a assistir uma aula</b></td><td>2h ou mais 18,8% · 1h a 1h30 18,4%</td><td>até 1h 9,4%</td><td>2,0×</td></tr>
+    <tr><td><b>Idade</b></td><td>35 a 54 anos 3,0%</td><td>55 ou mais 1,7% · até 24 anos 2,2%</td><td>1,8×</td></tr>
+    <tr><td><b>Cenário de pagamento</b></td><td>tem cartão e paga no cartão 18,3%</td><td>sem cartão e paga no Pix 12,3%</td><td>1,5×</td></tr>
+    <tr><td><b>Gênero</b></td><td>masculino 3,3%</td><td>feminino 2,4%</td><td>1,4×</td></tr>
+    <tr><td><b>Com quem mora · estado</b></td><td>pouca diferença</td><td>pouca diferença</td><td>até 1,5×</td></tr>
+  </table></div>
+  <p>Os campos de pagamento e tempo de aula foram perguntados só nas fichas recentes (1.527 respostas), por isso a taxa deles é maior. A comparação vale dentro de cada linha, não entre linhas.</p>
+  <h3>Escolaridade é critério MQL na PRF?</h3>
+  <p>É critério de <b>elegibilidade</b>, e aqui ela pesa mais que no TJ-AM: o cargo exige nível superior e CNH. Quem tem só ensino médio converte um terço de quem tem superior, e é exatamente o lead que pede o administrativo. Mas entre graduado, tecnólogo e pós a diferença some. Escolaridade separa quem pode de quem não pode, e para de informar a partir daí.</p>
+  <p>O achado mais estranho da ficha: quem já é concursado e <b>quer carreira policial</b> converte 0,8%, enquanto quem é concursado e quer "outra carreira" converte 4%. Quem já tem estabilidade e sonha com a farda estuda por conta ou por materiais gratuitos. Não é prioridade.</p>
+  <div class="grid2">
+    <div class="bloco"><h3>Entra como ponto de MQL pela ficha</h3><ul>
+      <li>Ensino superior completo ou tecnólogo</li><li>Já estudou conosco</li><li>Aceita assistir aula de 1 hora ou mais</li><li>Renda acima de R$ 2.826</li><li>Tem cartão</li><li>Respondeu que o que atrapalha é foco ou disciplina</li></ul></div>
+    <div class="bloco"><h3>Sai desde a ficha</h3><ul>
+      <li>Ensino médio: não é lead da Elite PRF até concluir o superior.</li>
+      <li>Respondeu que o que atrapalha é "dinheiro": objeção de valor declarada antes da conversa.</li>
+      <li>Concursado que quer a carreira policial: 0,8%.</li>
+      <li>Não usar: com quem mora, estado, profissão. Variam pouco.</li></ul></div>
+  </div>
+  <div class="regra"><b>Resumo para a equipe:</b> na PRF a ficha diz primeiro se o lead <i>pode</i> (superior, CNH) e depois se ele <i>tem</i> (cartão, renda, tempo). Nenhum desses substitui o sinal de pagamento na conversa, mas eles dizem quem a Anne deve procurar primeiro.</div>
+</section>
+
+<section id="muda">
+  <h2>Como o lead muda de classe</h2>
+  <ul>
+    <li><b>MQL vira SQL</b> no momento em que responde "prefere no cartão, no boleto ou no Pix parcelado?". Por isso a pergunta tem que ser feita cedo. É ela que revela a classe.</li>
+    <li><b>Valor vira SQL</b> se o lead voltar com data ou forma. Cleber disse "financeiramente não consigo" e comprou cinco dias depois. Zildo disse "vou pagar o cartão primeiro" e comprou 40 dias depois, quando liberaram o Pix parcelado.</li>
+    <li><b>SQL não volta a ser MQL.</b> Ele esfria, mas o sinal continua valendo. Um SQL de agosto com data vencida ainda é SQL para a próxima abertura.</li>
+    <li><b>Administrativo vira MQL</b> só quando o lead diz que concluiu o superior ou que mudou de alvo para o cargo policial.</li>
+  </ul>
+</section>
+
+<section id="acao">
+  <h2>O que cada classe significa na prática</h2>
+  <div class="tw"><table>
+    <tr><th>Classe</th><th>A Anne</th><th>O Comercial humano</th></tr>
+    <tr><td><span class="classe fora">FORA</span> secretária, administrativo, valor, tempo</td><td>Sai da cadência e do cupom. Só gatilho de abertura. Administrativo e tempo recebem conteúdo.</td><td>Nunca.</td></tr>
+    <tr><td><span class="classe c">C</span> conversa rasa</td><td>Nutre e faz a pergunta de pagamento.</td><td>Não.</td></tr>
+    <tr><td><span class="classe mql">MQL</span></td><td>Faz a pergunta de pagamento e manda o link junto. Ex-aluno e comprador de ingresso vêm primeiro.</td><td>Não.</td></tr>
+    <tr><td><span class="classe sql">SQL</span></td><td>Responde na hora, agenda a data prometida com a mesma condição, confirma a forma que o checkout tem.</td><td>Só se o checkout não tem a forma (Pix parcelado em 10x, recorrente), se pediu humano ou se a data venceu sem compra.</td></tr>
+  </table></div>
+  <div class="regra"><b>Para a equipe:</b> na PRF, 37% dos links foram para quem já tinha sinal de compra e esses responderam por 84% das vendas. Outros 17% dos links foram para secretária eletrônica, administrativo e objeção de valor: zero vendas. O Comercial entra no SQL travado em pagamento. Um terço das matrículas que passaram por humano foi para liberar Pix parcelado ou recorrente que a Anne tinha prometido e o checkout não mostrava.</div>
+</section>
+
+<section id="faq" class="faq">
+  <h2>Dúvidas frequentes</h2>
+  <details><summary>O lead só clicou "QUERO SER PRF" e respondeu "sim" três vezes. É SQL?</summary><p>Não. É conversa rasa. Botão e "sim" não são palavras próprias. Faça a pergunta de pagamento: a resposta diz a classe.</p></details>
+  <details><summary>O lead diz que já foi Elite Federal. Ignoro porque já é aluno?</summary><p>Não. Quem já foi aluno compra de novo em 39% dos casos. É prioridade, com a oferta certa: Elite PRF ou renovação, nunca o combo que não existe mais.</p></details>
+  <details><summary>O lead quer o administrativo. Ofereço a Elite PRF Administrativo?</summary><p>Hoje ela não vende: zero em 50 conversas. Esse lead vira nutrição até ter o nível superior ou mudar de alvo. Oferecer e insistir só gasta cadência.</p></details>
+  <details><summary>O lead prometeu "dia 4 quando vira o cartão" e o dia passou. E agora?</summary><p>Continua SQL. Chama no dia combinado, uma vez, com a mesma condição e a mesma forma. Não manda cupom de 15% no cartão para quem disse que não tem cartão.</p></details>
+  <details><summary>Qual a diferença de preço que mais confunde?</summary><p>Três ofertas convivem: 1 ano por 12x R$ 159, até a prova por 12x R$ 199 e o à vista de R$ 1.597 ou R$ 1.999. Um lead pagou R$ 1.597 achando que era R$ 159 e pediu reembolso. Quando a Anne cita preço, cita a forma e o total juntos.</p></details>
+  <details><summary>Por que o selo do Jev no card (A, B, C) é diferente disso?</summary><p>O selo atual mede temperatura geral. Esta régua mede sinal de pagamento. As duas vão ser unificadas: MQL e SQL vão substituir A e B no card.</p></details>
+</section>
+
+<footer class="rodape">
+  Documento de treinamento da equipe · base nas conversas da Anne Vendedora e nas matrículas da Elite PRF de 14/07 a 29/10/2026 · mesma régua do documento "TJ-AM: MQL e SQL".
+</footer>
+
+</div>
+</body>
+</html>

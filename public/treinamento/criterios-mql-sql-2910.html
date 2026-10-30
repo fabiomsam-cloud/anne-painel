@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Critérios MQL e SQL</title>
+<title>TJ-AM: MQL e SQL</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Bricolage+Grotesque:wght@600;700&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
 :root{--bg:#f6f4ee;--fg:#1c2420;--muted:#5d6a63;--line:#dcd8cc;--card:#fffdf8;--accent:#0f6e5c;--accent-soft:#e3f0ea;
@@ -62,13 +62,13 @@ a{color:var(--accent)}
 
 <header class="capa">
   <div class="eyebrow">Anne Vendedora · time comercial · 29 de outubro de 2026</div>
-  <h1>Critérios MQL e SQL</h1>
+  <h1>TJ-AM: MQL e SQL</h1>
   <p class="lead">O que faz um lead ser MQL, o que faz ser SQL e quem não é nenhum dos dois. Com exemplos reais das conversas da Anne no TJ-AM.</p>
   <div class="meta">Base: 537 matrículas da Elite TJ-AM desde julho e 1.297 conversas lidas e medidas. Os exemplos são conversas reais, só com o primeiro nome. As porcentagens são a taxa de matrícula de cada grupo.</div>
 </header>
 
 <nav class="sumario" aria-label="Sumário">
-  <a href="#resumo">Resumo</a><a href="#regra">A regra</a><a href="#fora">Quem fica fora</a><a href="#mql">MQL</a><a href="#sql">SQL</a><a href="#erros">Erros comuns</a><a href="#muda">Mudança de classe</a><a href="#acao">O que fazer</a><a href="#faq">Dúvidas</a>
+  <a href="#resumo">Resumo</a><a href="#regra">A regra</a><a href="#fora">Quem fica fora</a><a href="#mql">MQL</a><a href="#sql">SQL</a><a href="#erros">Erros comuns</a><a href="#ficha">A ficha</a><a href="#muda">Mudança de classe</a><a href="#acao">O que fazer</a><a href="#faq">Dúvidas</a>
 </nav>
 
 <section id="resumo">
@@ -283,6 +283,34 @@ a{color:var(--accent)}
     <tr><td>"Vou pensar e te retorno"</td><td>Data</td><td><span class="classe mql">MQL</span></td><td>Data é dia, semana ou evento ("quando receber"). "Vou pensar" não é data.</td></tr>
     <tr><td>"Como podemos ajudar?"</td><td>Lead respondeu</td><td><span class="classe fora">FORA</span></td><td>Secretária eletrônica. Zero.</td></tr>
   </table></div>
+</section>
+
+<section id="ficha">
+  <h2>O que a ficha já diz antes da conversa</h2>
+  <p>Antes de falar com a Anne, muitos leads respondem a pesquisa de qualificação. Cruzamos 12.509 fichas do TJ-AM (janeiro de 2025 a outubro de 2026) com a matrícula feita depois da ficha: 1.366 compraram, 10,9%. O número é maior que o da conversa porque acumula quase dois anos de ofertas. O que importa é a diferença entre as respostas.</p>
+  <div class="tw"><table>
+    <tr><th>O lead respondeu na ficha</th><th>Melhor resposta</th><th>Pior resposta</th><th>Diferença</th></tr>
+    <tr><td><b>O que atrapalha seus estudos</b></td><td>falta de foco 18% · disciplina 15%</td><td>dinheiro 3,8% · financeiro 4,2%</td><td>4,8×</td></tr>
+    <tr><td><b>Tempo disposto a assistir uma aula</b></td><td>2h ou mais 16,1%</td><td>30 a 45 min 5,6%</td><td>2,9×</td></tr>
+    <tr><td><b>Renda</b></td><td>acima de R$ 4.664: 14,4%</td><td>até R$ 1.903: 7,0%</td><td>2,1×</td></tr>
+    <tr><td><b>Escolaridade</b></td><td>pós ou mestrado 12% · graduado 10,8%</td><td>ensino médio 5,7% · cursando 7,4%</td><td>2,1×</td></tr>
+    <tr><td><b>Já estudou conosco</b></td><td>sim 14,9%</td><td>não 7,9%</td><td>1,9×</td></tr>
+    <tr><td><b>Cenário de pagamento</b></td><td>tem cartão e paga no cartão 15,4%</td><td>sem cartão, boleto ou Pix 9%</td><td>1,7×</td></tr>
+    <tr><td><b>Experiência em concursos</b></td><td>concursado que quer outra carreira 13,9%</td><td>sem experiência 8,3%</td><td>1,7×</td></tr>
+    <tr><td><b>Idade</b></td><td>35 a 54 anos 10,6%</td><td>até 34 anos 8,2%</td><td>1,3×</td></tr>
+    <tr><td><b>Gênero · com quem mora</b></td><td>sem diferença</td><td>sem diferença</td><td>1,0×</td></tr>
+  </table></div>
+  <p>Combinando: ensino superior com cartão converte 16%. Ensino médio com boleto converte 1%.</p>
+  <h3>Escolaridade é critério MQL?</h3>
+  <p>É critério de <b>elegibilidade</b>, não de temperatura. Analista exige nível superior, e quem tem só ensino médio converte metade. Mas graduado, pós e mestrado convertem praticamente igual entre si. Escolaridade separa quem pode de quem não pode, e para de informar a partir daí. Não é ela que diz se o lead está perto de comprar.</p>
+  <div class="grid2">
+    <div class="bloco"><h3>Entra como ponto de MQL pela ficha</h3><ul>
+      <li>Aceita assistir aula de 1 hora ou mais</li><li>Tem cartão</li><li>Já estudou conosco</li><li>Renda acima de R$ 2.826</li><li>Ensino superior completo ou pós</li></ul></div>
+    <div class="bloco"><h3>Sai desde a ficha</h3><ul>
+      <li>Respondeu que o que atrapalha é "dinheiro" ou "financeiro". É a objeção de valor declarada antes da conversa: converte 4%.</li>
+      <li>Não usar: gênero, com quem mora, sentimento. Não mudam nada.</li></ul></div>
+  </div>
+  <div class="regra"><b>Resumo para a equipe:</b> perfil pessoal pesa pouco. O que pesa é dinheiro disponível, tempo que a pessoa aceita dedicar e o motivo que ela mesma dá para não estudar.</div>
 </section>
 
 <section id="muda">
